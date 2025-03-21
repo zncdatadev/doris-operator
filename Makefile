@@ -1,7 +1,13 @@
-# Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.31.0
+VERSION ?= 0.0.0-dev
+ENVTEST_K8S_VERSION = 1.26.1
+
+REGISTRY ?= quay.io/zncdatadev
+PROJECT_NAME = doris-operator
+
+# Image URL to use all building/pushing image targets
+IMG ?= $(REGISTRY)/$(PROJECT_NAME):$(VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -45,7 +51,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -120,10 +126,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name doris-operator-builder
-	$(CONTAINER_TOOL) buildx use doris-operator-builder
+	- $(CONTAINER_TOOL) buildx create --name $(PROJECT_NAME)-builder
+	$(CONTAINER_TOOL) buildx use $(PROJECT_NAME)-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm doris-operator-builder
+	- $(CONTAINER_TOOL) buildx rm $(PROJECT_NAME)-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer
@@ -140,7 +146,9 @@ endif
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+	# add --server-side=true to fix "is invalid: metadata.annotations: Too long: must have at most 262144 bytes"
+	# ref: https://stackoverflow.com/a/70083579
+	$(KUSTOMIZE) build config/crd | kubectl apply --server-side=true -f -
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -149,7 +157,9 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	# add --server-side=true to fix "is invalid: metadata.annotations: Too long: must have at most 262144 bytes"
+	# ref: https://stackoverflow.com/a/70083579
+	$(KUSTOMIZE) build config/default | kubectl apply --server-side=true -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -168,12 +178,16 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+HELM = $(LOCALBIN)/helm
+KIND = $(LOCALBIN)/kind
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.5.0
-CONTROLLER_TOOLS_VERSION ?= v0.16.4
+CONTROLLER_TOOLS_VERSION ?= v0.16.5
 ENVTEST_VERSION ?= release-0.19
 GOLANGCI_LINT_VERSION ?= v1.61.0
+HELM_VERSION ?= v3.16.2
+KIND_VERSION ?= v0.24.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -195,6 +209,16 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
+.PHONY: helm
+helm: $(HELM) ## Download helm locally if necessary.
+$(HELM): $(LOCALBIN)
+	$(call go-install-tool,$(HELM),helm.sh/helm/v3/cmd/helm,$(HELM_VERSION))
+
+.PHONY: kind
+kind: $(KIND) ## Download helm locally if necessary.
+$(KIND): $(LOCALBIN)
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
+
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
 # $2 - package url which can be installed
@@ -210,3 +234,89 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+HELM_DEPENDS ?=  commons-operator secret-operator listener-operator zookeeper-operator
+TEST_NAMESPACE = kubedoop-operators
+
+.PHONY: helm-install-depends
+helm-install-depends: helm ## Install the helm chart depends.
+	$(HELM) repo add kubedoop https://zncdatadev.github.io/kubedoop-helm-charts/
+ifneq ($(strip $(HELM_DEPENDS)),)
+	for dep in $(HELM_DEPENDS); do \
+		$(HELM) upgrade --install --create-namespace --namespace $(TEST_NAMESPACE) --wait $$dep kubedoop/$$dep --version $(VERSION); \
+	done
+endif
+
+## helm uninstall depends
+.PHONY: helm-uninstall-depends
+helm-uninstall-depends: helm ## Uninstall the helm chart depends.
+ifneq ($(strip $(HELM_DEPENDS)),)
+	for dep in $(HELM_DEPENDS); do \
+		$(HELM) uninstall --namespace $(TEST_NAMESPACE) $$dep; \
+	done
+endif
+
+##@ Chainsaw-E2E
+
+# Tool Versions
+KINDTEST_K8S_VERSION ?= 1.26.15
+CHAINSAW_VERSION ?= v0.2.11
+
+KIND_IMAGE ?= kindest/node:v${KINDTEST_K8S_VERSION}
+KIND_KUBECONFIG ?= ./kind-kubeconfig-$(KINDTEST_K8S_VERSION)
+KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-$(KINDTEST_K8S_VERSION)
+KIND_CONFIG ?= test/e2e/kind-config.yaml
+
+CHAINSAW = $(LOCALBIN)/chainsaw
+
+# Create a kind cluster
+.PHONY: kind-create
+kind-create: kind ## Create a kind cluster.
+	$(KIND) create cluster --config $(KIND_CONFIG) --image $(KIND_IMAGE) --name $(KIND_CLUSTER_NAME) --kubeconfig $(KIND_KUBECONFIG) --wait 120s
+
+.PHONY: kind-delete
+kind-delete: kind ## Delete a kind cluster.
+	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
+
+# chainsaw
+
+# Use `grep 0.2.6 > /dev/null` instead of `grep -q 0.2.6`. It will not be able to determine the version number,
+# although the execution in the shell is normal, but in the makefile does fail to understand the mechanism in the makefile
+# The operation ends by using `touch` to change the time of the file so that its timestamp is further back than the directory,
+# so that no subsequent logic is performed after the `chainsaw` check is successful in relying on the `$(CHAINSAW)` target.
+.PHONY: chainsaw
+chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
+$(CHAINSAW): $(LOCALBIN)
+	@{ \
+	set -xe ;\
+	if test -x $(LOCALBIN)/chainsaw && ! $(LOCALBIN)/chainsaw version | grep $(CHAINSAW_VERSION:v%=%) > /dev/null; then \
+		echo "$(LOCALBIN)/chainsaw version is not expected $(CHAINSAW_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/chainsaw; \
+	fi; \
+	if test ! -s $(LOCALBIN)/chainsaw; then \
+		mkdir -p $(dir $(CHAINSAW)) ;\
+		TMP=$(shell mktemp -d) ;\
+		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+		curl -sSL https://github.com/kyverno/chainsaw/releases/download/$(CHAINSAW_VERSION)/chainsaw_$${OS}_$${ARCH}.tar.gz | tar -xz -C $$TMP ;\
+		mv $$TMP/chainsaw $(CHAINSAW) ;\
+		rm -rf $$TMP ;\
+		chmod +x $(CHAINSAW) ;\
+		touch $(CHAINSAW) ;\
+	fi; \
+	}
+
+.PHONY: chainsaw-setup
+chainsaw-setup: ## Run the chainsaw setup
+	make docker-build
+	$(KIND) --name $(KIND_CLUSTER_NAME) load docker-image $(IMG)
+	KUBECONFIG=$(KIND_KUBECONFIG) make helm-install-depends
+	KUBECONFIG=$(KIND_KUBECONFIG) make deploy
+
+.PHONY: chainsaw-test
+chainsaw-test: chainsaw ## Run the chainsaw test
+	KUBECONFIG=$(KIND_KUBECONFIG) $(CHAINSAW) test --cluster cluster-1=$(KIND_KUBECONFIG) --test-dir ./test/e2e/
+
+.PHONY: chainsaw-cleanup
+chainsaw-cleanup: ## Run the chainsaw cleanup
+	KUBECONFIG=$(KIND_KUBECONFIG) make helm-uninstall-depends
+	KUBECONFIG=$(KIND_KUBECONFIG) make undeploy
