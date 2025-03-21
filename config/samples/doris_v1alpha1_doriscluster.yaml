@@ -1,0 +1,9 @@
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: doris-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: doriscluster-sample
+spec:
+  # TODO(user): Add fields here
