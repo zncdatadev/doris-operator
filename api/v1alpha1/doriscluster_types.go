@@ -17,26 +17,15 @@ limitations under the License.
 package v1alpha1
 
 import (
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
+	"github.com/zncdatadev/operator-go/pkg/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// DorisClusterSpec defines the desired state of DorisCluster.
-type DorisClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of DorisCluster. Edit doriscluster_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
-
-// DorisClusterStatus defines the observed state of DorisCluster.
-type DorisClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+// DorisClusterSpec defines the desired state of DorisCluster.d
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -46,8 +35,8 @@ type DorisCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DorisClusterSpec   `json:"spec,omitempty"`
-	Status DorisClusterStatus `json:"status,omitempty"`
+	Spec   DorisClusterSpec `json:"spec,omitempty"`
+	Status status.Status    `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -57,6 +46,62 @@ type DorisClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []DorisCluster `json:"items"`
+}
+
+// DorisClusterSpec defines the desired state of DorisCluster
+type DorisClusterSpec struct {
+	// +kubebuilder:validation:Optional
+	Image *ImageSpec `json:"image"`
+
+	// +kubebuilder:validation:Optional
+	ClusterConfig *ClusterConfigSpec `json:"clusterConfig,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	ClusterOperationSpec *commonsv1alpha1.ClusterOperationSpec `json:"clusterOperation,omitempty"`
+
+	// +kubebuilder:validation:Required
+	FrontEnd *RoleSpec `json:"frontEnd,omitempty"`
+
+	// +kubebuilder:validation:Required
+	BackEnd *RoleSpec `json:"backEnd,omitempty"`
+}
+
+type ClusterConfigSpec struct {
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="cluster.local"
+	ClusterDomain string `json:"clusterDomain,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="example.com"
+	IngressHost string `json:"ingressHost,omitempty"`
+}
+
+type RoleSpec struct {
+	// +kubebuilder:validation:Optional
+	Config *ConfigSpec `json:"config,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	RoleGroups map[string]RoleGroupSpec `json:"roleGroups,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	RoleConfig *commonsv1alpha1.RoleConfigSpec `json:"roleConfig,omitempty"`
+
+	*commonsv1alpha1.OverridesSpec `json:",inline"`
+}
+
+type RoleGroupSpec struct {
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=1
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Config *ConfigSpec `json:"config,omitempty"`
+
+	*commonsv1alpha1.OverridesSpec `json:",inline"`
+}
+type ConfigSpec struct {
+	*commonsv1alpha1.RoleGroupConfigSpec `json:",inline"`
 }
 
 func init() {
