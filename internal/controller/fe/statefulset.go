@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -137,6 +138,7 @@ func (b *FeStatefulSetBuilder) GetVolumeClaimTemplates() []corev1.PersistentVolu
 				Name: constants.FEMetadataVolume,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
+				VolumeMode:  ptr.To(corev1.PersistentVolumeFilesystem),
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{

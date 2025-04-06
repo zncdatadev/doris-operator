@@ -54,7 +54,7 @@ func NewDorisServiceBuilder(
 ) builder.ServiceBuilder {
 	// Determine service name
 	componentType := config.ComponentType
-	serviceName := getServiceName(roleGroupInfo.ClusterName, componentType, serviceType)
+	serviceName := GetServiceName(roleGroupInfo.ClusterName, componentType, serviceType)
 
 	// Get service ports based on service type
 	var ports []corev1.ContainerPort
@@ -73,12 +73,12 @@ func NewDorisServiceBuilder(
 	}
 
 	// If this is an internal service, set it to headless
-	var listenerClass opconstants.ListenerClass
-	if serviceType == ServiceTypeInternal {
-		listenerClass = opconstants.ClusterInternal
-	} else {
-		listenerClass = opconstants.ExternalUnstable
-	}
+	// var listenerClass opconstants.ListenerClass
+	// if serviceType == ServiceTypeInternal {
+	// 	listenerClass = opconstants.ClusterInternal
+	// } else {
+	// 	listenerClass = opconstants.ExternalUnstable
+	// }
 
 	// Create the BaseServiceBuilder with container ports
 	// ServiceBuilder will convert these to ServicePort internally
@@ -88,7 +88,7 @@ func NewDorisServiceBuilder(
 		ports,
 		func(sbo *builder.ServiceBuilderOptions) {
 			sbo.Headless = (serviceType == ServiceTypeInternal)
-			sbo.ListenerClass = listenerClass
+			sbo.ListenerClass = opconstants.ClusterInternal
 			sbo.Labels = svcLabels
 			sbo.MatchingLabels = matchLabels
 		},
@@ -105,7 +105,7 @@ func NewDorisServiceBuilder(
 }
 
 // Get service name based on component type and service type
-func getServiceName(clusterName string, componentType constants.ComponentType, serviceType ServiceType) string {
+func GetServiceName(clusterName string, componentType constants.ComponentType, serviceType ServiceType) string {
 	if serviceType == ServiceTypeInternal {
 		return clusterName + "-" + string(componentType) + constants.ServiceInternalSuffix
 	}

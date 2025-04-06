@@ -101,8 +101,9 @@ func (b *BeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 func (b *BeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 	return []corev1.Container{
 		{
-			Name:  constants.InitContainerName,
-			Image: common.GetInitContainerImage(),
+			Name:            constants.InitContainerName,
+			Image:           common.GetInitContainerImage(),
+			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command: []string{
 				"sh",
 				"-c",
@@ -145,6 +146,7 @@ func (b *BeStatefulSetBuilder) GetVolumeClaimTemplates() []corev1.PersistentVolu
 				Name: constants.BEStorageVolume,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
+				VolumeMode:  ptr.To(corev1.PersistentVolumeFilesystem),
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{

@@ -47,6 +47,10 @@ func NewStatefulSetBuilder(
 	overrdes *commonsv1alpha1.OverridesSpec,
 	dorisCluster *dorisv1alpha1.DorisCluster,
 ) *StatefulSetBuilder {
+	var roleGroupConfigSpec *commonsv1alpha1.RoleGroupConfigSpec
+	if roleConfig != nil {
+		roleGroupConfigSpec = roleConfig.RoleGroupConfigSpec
+	}
 	return &StatefulSetBuilder{
 		StatefulSet: builder.NewStatefulSetBuilder(
 			client,
@@ -54,7 +58,7 @@ func NewStatefulSetBuilder(
 			replicas,
 			image,
 			overrdes,
-			roleConfig.RoleGroupConfigSpec,
+			roleGroupConfigSpec,
 			func(o *builder.Options) {
 				o.ClusterName = roleGroupInf.ClusterName
 				o.Labels = roleGroupInf.GetLabels()
@@ -152,13 +156,15 @@ func (b *StatefulSetBuilder) getCommonVolumes() []corev1.Volume {
 						{
 							Path: "labels",
 							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: "metadata.labels",
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
 							},
 						},
 						{
 							Path: "annotations",
 							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: "metadata.annotations",
+								APIVersion: "v1",
+								FieldPath:  "metadata.annotations",
 							},
 						},
 					},
@@ -170,8 +176,7 @@ func (b *StatefulSetBuilder) getCommonVolumes() []corev1.Volume {
 
 // getFeServiceAddress returns the FE service address for BE to connect to
 func (b *StatefulSetBuilder) getFeServiceAddress() string {
-	feServiceName := b.clusterName + "-fe-headless"
-	return feServiceName + "." + b.ctx.Value("namespace").(string) + ".svc:9030"
+	return GetServiceName(b.clusterName, constants.ComponentTypeFE, ServiceTypeAccess)
 }
 
 // CreateTcpProbe creates a TCP probe for health checking
@@ -278,6 +283,7 @@ func (b *StatefulSetBuilder) CreateBaseContainer(
 	containerBuilder := builder.NewContainerBuilder(containerName, b.GetImage()).
 		AddEnvVars(commonEnvVars).
 		SetCommand([]string{entrypoint}).
+		SetArgs([]string{"$(ENV_FE_ADDR)"}).
 		AddPorts(ports).
 		SetLivenessProbe(livenessProbe).
 		SetReadinessProbe(readinessProbe).

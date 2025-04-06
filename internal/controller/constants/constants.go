@@ -19,16 +19,6 @@ const (
 
 // Service related constants
 const (
-	// Service port names
-	ServiceQueryPortName     = "query-port"
-	ServiceHttpPortName      = "http-port"
-	ServiceRpcPortName       = "rpc-port"
-	ServiceEditLogPortName   = "edit-log-port"
-	ServiceBePortName        = "be-port"
-	ServiceWebServerPortName = "webserver-port"
-	ServiceHeartbeatPortName = "heartbeat-port"
-	ServiceBrpcPortName      = "brpc-port"
-
 	// Service naming patterns
 	ServiceInternalSuffix = "-internal"
 	ServiceAccessSuffix   = "-service"

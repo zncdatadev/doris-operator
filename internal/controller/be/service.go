@@ -11,9 +11,9 @@ import (
 
 // GetBEServiceConfig returns the default service configuration for BE
 func GetBEServiceConfig() *common.ComponentServiceConfig {
-	// Define the BE container ports
+	// Define the BE container ports - use the same names as in the StatefulSet!
 	beHeartbeatPort := corev1.ContainerPort{
-		Name:          constants.ServiceHeartbeatPortName,
+		Name:          constants.BEHeartbeatPortName, // Use constant port name
 		ContainerPort: constants.BEHeartbeatPort,
 		Protocol:      corev1.ProtocolTCP,
 	}
@@ -24,18 +24,18 @@ func GetBEServiceConfig() *common.ComponentServiceConfig {
 	// Access service exposes all BE ports
 	accessPorts := []corev1.ContainerPort{
 		{
-			Name:          constants.ServiceBePortName,
+			Name:          constants.BERpcPortName, // Use constant port name
 			ContainerPort: constants.BERpcPort,
 			Protocol:      corev1.ProtocolTCP,
 		},
 		{
-			Name:          constants.ServiceWebServerPortName,
+			Name:          constants.BEHttpPortName, // Use constant port name
 			ContainerPort: constants.BEHttpPort,
 			Protocol:      corev1.ProtocolTCP,
 		},
 		beHeartbeatPort, // Reuse the same port definition
 		{
-			Name:          constants.ServiceBrpcPortName,
+			Name:          constants.BEBrpcPortName, // Use constant port name
 			ContainerPort: constants.BEBrpcPort,
 			Protocol:      corev1.ProtocolTCP,
 		},

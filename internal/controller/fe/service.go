@@ -11,9 +11,9 @@ import (
 
 // GetFEServiceConfig returns the default service configuration for FE
 func GetFEServiceConfig() *common.ComponentServiceConfig {
-	// Define the FE container ports
+	// Define the FE container ports - use the same names as in the StatefulSet!
 	feQueryPort := corev1.ContainerPort{
-		Name:          constants.ServiceQueryPortName,
+		Name:          constants.FEQueryPortName, // Use constant port name
 		ContainerPort: constants.FEQueryPort,
 		Protocol:      corev1.ProtocolTCP,
 	}
@@ -24,18 +24,18 @@ func GetFEServiceConfig() *common.ComponentServiceConfig {
 	// Access service exposes all FE ports
 	accessPorts := []corev1.ContainerPort{
 		{
-			Name:          constants.ServiceHttpPortName,
+			Name:          constants.FEHttpPortName, // Use constant port name
 			ContainerPort: constants.FEHttpPort,
 			Protocol:      corev1.ProtocolTCP,
 		},
 		{
-			Name:          constants.ServiceRpcPortName,
+			Name:          constants.FERpcPortName, // Use constant port name
 			ContainerPort: constants.FERpcPort,
 			Protocol:      corev1.ProtocolTCP,
 		},
 		feQueryPort, // Reuse the same port definition
 		{
-			Name:          constants.ServiceEditLogPortName,
+			Name:          constants.FEEditLogPortName, // Use constant port name
 			ContainerPort: constants.FEEditLogPort,
 			Protocol:      corev1.ProtocolTCP,
 		},
