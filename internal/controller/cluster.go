@@ -5,6 +5,8 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/be"
+	"github.com/zncdatadev/doris-operator/internal/controller/common"
+	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/doris-operator/internal/controller/fe"
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
@@ -43,8 +45,9 @@ func NewClusterReconciler(
 }
 
 // GetImage returns the image configuration for Doris components
-func (r *Reconciler) GetImage() *util.Image {
+func (r *Reconciler) GetImage(roleType constants.ComponentType) *util.Image {
 	image := &util.Image{
+		Custom:          common.GetComponentImage(r.Spec.Image, roleType),
 		Repo:            dorisv1alpha1.DefaultRepository,
 		ProductName:     dorisv1alpha1.DefaultProductName,
 		KubedoopVersion: dorisv1alpha1.DefaultKubedoopVersion,
@@ -81,7 +84,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		}
 
 		// Create FE reconciler with base image
-		feImage := r.GetImage()
+		feImage := r.GetImage(constants.ComponentTypeFE)
 		feReconciler := fe.NewFEReconciler(
 			r.Client,
 			feRoleInfo,
@@ -107,7 +110,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		}
 
 		// Create BE reconciler with base image
-		beImage := r.GetImage()
+		beImage := r.GetImage(constants.ComponentTypeBE)
 		beReconciler := be.NewBEReconciler(
 			r.Client,
 			beRoleInfo,
