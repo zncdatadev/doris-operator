@@ -76,31 +76,27 @@ func NewStatefulSetBuilder(
 	}
 }
 
-// ComponentInterface defines methods that should be implemented by BE/FE specific builders
-type ComponentInterface interface {
+// StatefulSetComponentBuilder defines methods that should be implemented by BE/FE specific builders
+type StatefulSetComponentBuilder interface {
 	// GetMainContainer returns the main container for the component
 	GetMainContainer() *corev1.Container
-
 	// GetInitContainers returns any init containers required by the component
 	GetInitContainers() []corev1.Container
-
 	// GetVolumes returns component-specific volumes
 	GetVolumes() []corev1.Volume
-
 	// GetVolumeClaimTemplates returns PVCs for the component
 	GetVolumeClaimTemplates() []corev1.PersistentVolumeClaim
-
 	// GetAdditionalEnvVars returns component-specific environment variables
 	GetAdditionalEnvVars() []corev1.EnvVar
 }
 
 // Build constructs the StatefulSet object combining common and component-specific configurations
-func (b *StatefulSetBuilder) Build(ctx context.Context, componentInterface ComponentInterface) (ctrlclient.Object, error) {
+func (b *StatefulSetBuilder) Build(ctx context.Context, component StatefulSetComponentBuilder) (ctrlclient.Object, error) {
 	// Add component-specific container
-	b.AddContainer(componentInterface.GetMainContainer())
+	b.AddContainer(component.GetMainContainer())
 
 	// Add init containers if any
-	initContainers := componentInterface.GetInitContainers()
+	initContainers := component.GetInitContainers()
 	for i := range initContainers {
 		b.AddInitContainer(&initContainers[i])
 	}
@@ -109,10 +105,10 @@ func (b *StatefulSetBuilder) Build(ctx context.Context, componentInterface Compo
 	b.AddVolumes(b.getCommonVolumes())
 
 	// Add component-specific volumes
-	b.AddVolumes(componentInterface.GetVolumes())
+	b.AddVolumes(component.GetVolumes())
 
 	// Add volume claim templates
-	b.AddVolumeClaimTemplates(componentInterface.GetVolumeClaimTemplates())
+	b.AddVolumeClaimTemplates(component.GetVolumeClaimTemplates())
 
 	// Create the StatefulSet object
 	sts, err := b.GetObject()
@@ -148,6 +144,16 @@ func (b *StatefulSetBuilder) GetObject() (*appv1.StatefulSet, error) {
 // getCommonVolumes returns volumes common to both BE and FE components
 func (b *StatefulSetBuilder) getCommonVolumes() []corev1.Volume {
 	return []corev1.Volume{
+		{
+			Name: constants.ConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: b.GetName(),
+					},
+				},
+			},
+		},
 		{
 			Name: "podinfo",
 			VolumeSource: corev1.VolumeSource{
@@ -277,6 +283,10 @@ func (b *StatefulSetBuilder) CreateBaseContainer(
 			Name:      "podinfo",
 			MountPath: "/etc/podinfo",
 		},
+		{
+			Name:      constants.ConfigVolumeName,
+			MountPath: "/etc/doris/conf",
+		},
 	}
 
 	// Use builder to create container
@@ -295,4 +305,9 @@ func (b *StatefulSetBuilder) CreateBaseContainer(
 	}
 
 	return containerBuilder.Build()
+}
+
+// GetRoleGroupInfo returns the roleGroupInfo
+func (b *StatefulSetBuilder) GetRoleGroupInfo() *reconciler.RoleGroupInfo {
+	return b.roleGroupInfo
 }

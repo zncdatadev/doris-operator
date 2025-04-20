@@ -18,7 +18,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// BeStatefulSetBuilder implements common.ComponentInterface
+// BeStatefulSetBuilder implements common.StatefulSetComponentBuilder
 type BeStatefulSetBuilder struct {
 	*common.StatefulSetBuilder
 	beRole *dorisv1alpha1.ConfigSpec
@@ -89,10 +89,12 @@ func (b *BeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 	)
 
 	// Add BE specific volume mounts
-	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
-		Name:      constants.BEStorageVolume,
-		MountPath: constants.BEStoragePath,
-	})
+	container.VolumeMounts = append(container.VolumeMounts,
+		corev1.VolumeMount{
+			Name:      constants.BEStorageVolume,
+			MountPath: constants.BEStoragePath,
+		},
+	)
 
 	return container
 }
@@ -118,7 +120,18 @@ func (b *BeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 
 // GetVolumes implements ComponentInterface, returns BE specific volumes
 func (b *BeStatefulSetBuilder) GetVolumes() []corev1.Volume {
-	return []corev1.Volume{}
+	return []corev1.Volume{
+		{
+			Name: constants.ConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: b.GetRoleGroupInfo().GetFullName(),
+					},
+				},
+			},
+		},
+	}
 }
 
 // GetVolumeClaimTemplates implements ComponentInterface, returns BE storage PVCs

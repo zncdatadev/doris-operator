@@ -70,8 +70,20 @@ func (r *FEReconciler) RegisterResourceWithRoleGroup(
 		return nil, err
 	}
 
-	// Add FE-specific resources here, such as Ingress, etc.
-	// ...
+	// Create FE configmap reconciler
+	var roleGroupConfig *commonsv1alpha1.RoleGroupConfigSpec
+	if config != nil {
+		roleGroupConfig = config.RoleGroupConfigSpec
+	}
+	configMapRec := NewFEConfigMapReconciler(
+		ctx,
+		r.client,
+		roleGroupInfo,
+		overrides,
+		roleGroupConfig,
+		r.DorisCluster,
+	)
+	reconcilers = append(reconcilers, configMapRec)
 
 	return reconcilers, nil
 }

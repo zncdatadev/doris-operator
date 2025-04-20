@@ -101,6 +101,9 @@ const (
 	FEMetadataVolume = string(ComponentTypeFE) + "-meta"
 	BEStorageVolume  = string(ComponentTypeBE) + "-storage"
 	PodinfoVolume    = "podinfo"
+
+	// ConfigVolumeName is the name of the configmap volume
+	ConfigVolumeName = "doris-config"
 )
 
 // Resource related constants

@@ -18,7 +18,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// FeStatefulSetBuilder implements common.ComponentInterface
+// FeStatefulSetBuilder implements common.StatefulSetComponentBuilder
 type FeStatefulSetBuilder struct {
 	*common.StatefulSetBuilder
 	feRole *dorisv1alpha1.ConfigSpec
@@ -72,8 +72,6 @@ func (b *FeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 
 	// Get resource requirements
 	resources := getFeResourcesSpec()
-
-	// If resources are specified in RoleConfig, use them
 	if b.feRole != nil && b.feRole.Resources != nil {
 		resources = b.feRole.Resources
 	}
@@ -95,10 +93,12 @@ func (b *FeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 	})
 
 	// Add FE specific volume mounts
-	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
-		Name:      constants.FEMetadataVolume,
-		MountPath: constants.FEMetadataPath,
-	})
+	container.VolumeMounts = append(container.VolumeMounts,
+		corev1.VolumeMount{
+			Name:      constants.FEMetadataVolume,
+			MountPath: constants.FEMetadataPath,
+		},
+	)
 
 	return container
 }
@@ -110,7 +110,18 @@ func (b *FeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 
 // GetVolumes implements ComponentInterface, returns FE specific volumes
 func (b *FeStatefulSetBuilder) GetVolumes() []corev1.Volume {
-	return []corev1.Volume{}
+	return []corev1.Volume{
+		{
+			Name: constants.ConfigVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: b.GetRoleGroupInfo().GetFullName(),
+					},
+				},
+			},
+		},
+	}
 }
 
 // GetVolumeClaimTemplates implements ComponentInterface, returns FE storage PVCs

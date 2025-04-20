@@ -70,8 +70,20 @@ func (r *BEReconciler) RegisterResourceWithRoleGroup(
 		return nil, err
 	}
 
-	// Add BE-specific resources here, such as PDB, etc.
-	// ...
+	// Create BE configmap reconciler
+	var roleGroupConfig *commonsv1alpha1.RoleGroupConfigSpec
+	if config != nil {
+		roleGroupConfig = config.RoleGroupConfigSpec
+	}
+	configMapRec := NewBEConfigMapReconciler(
+		ctx,
+		r.client,
+		roleGroupInfo,
+		overrides,
+		roleGroupConfig,
+		r.DorisCluster,
+	)
+	reconcilers = append(reconcilers, configMapRec)
 
 	return reconcilers, nil
 }
