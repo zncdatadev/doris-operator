@@ -9,6 +9,17 @@ const (
 	ComponentTypeBE ComponentType = "be"
 )
 
+// config file names
+const (
+	// Configuration file names
+	FEConfigFilename       = "fe.conf"
+	BEConfigFilename       = "be.conf"
+	FELog4j2ConfigFilename = "log4j2.properties"
+
+)
+
+const FELogFileName = "fe.log4j2.xml"
+
 // General constants
 const (
 	// Common values
@@ -104,6 +115,8 @@ const (
 
 	// ConfigVolumeName is the name of the configmap volume
 	ConfigVolumeName = "doris-config"
+
+	LogVolumeName = "log"
 )
 
 // Resource related constants

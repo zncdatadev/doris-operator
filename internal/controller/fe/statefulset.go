@@ -208,7 +208,7 @@ func NewFeStatefulSetReconciler(
 	var img *opgoutil.Image = image
 
 	if img == nil {
-		// 使用common包中的函数获取FE组件镜像
+		// Get FE component image using common package function
 		feImage := common.GetComponentImage(dorisCluster.Spec.Image, constants.ComponentTypeFE)
 		pullPolicy := common.GetPullPolicy(dorisCluster.Spec.Image)
 		img = &opgoutil.Image{Custom: feImage, PullPolicy: pullPolicy}
@@ -227,7 +227,7 @@ func NewFeStatefulSetReconciler(
 	)
 
 	feBuilder := NewFeStatefulSetBuilder(commonBuilder, roleGroupConfig)
-	// stopped
+	// Set stopped flag
 	stopped := false
 	if clusterOperation != nil && clusterOperation.Stopped {
 		stopped = true

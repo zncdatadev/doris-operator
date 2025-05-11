@@ -8,6 +8,7 @@ import (
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
+	opgpconstants "github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	opgoutil "github.com/zncdatadev/operator-go/pkg/util"
 	appv1 "k8s.io/api/apps/v1"
@@ -144,6 +145,12 @@ func (b *StatefulSetBuilder) GetObject() (*appv1.StatefulSet, error) {
 // getCommonVolumes returns volumes common to both BE and FE components
 func (b *StatefulSetBuilder) getCommonVolumes() []corev1.Volume {
 	return []corev1.Volume{
+		{
+			Name: constants.LogVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
 		{
 			Name: constants.ConfigVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -286,6 +293,10 @@ func (b *StatefulSetBuilder) CreateBaseContainer(
 		{
 			Name:      constants.ConfigVolumeName,
 			MountPath: "/etc/doris/conf",
+		},
+		{
+			Name:      constants.LogVolumeName,
+			MountPath: opgpconstants.KubedoopLogDir,
 		},
 	}
 

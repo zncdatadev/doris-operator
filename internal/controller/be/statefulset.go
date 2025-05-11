@@ -211,11 +211,11 @@ func NewBeStatefulSetReconciler(
 	roleGroupConfig *dorisv1alpha1.ConfigSpec,
 	overrides *commonsv1alpha1.OverridesSpec,
 ) (reconciler.ResourceReconciler[builder.StatefulSetBuilder], error) {
-	// 创建镜像对象
+	// Create image object
 	var img *opgoutil.Image = image
 
 	if img == nil {
-		// 使用common包中的函数获取BE组件镜像
+		// Get BE component image using common package function
 		beImage := common.GetComponentImage(dorisCluster.Spec.Image, constants.ComponentTypeBE)
 		pullPolicy := common.GetPullPolicy(dorisCluster.Spec.Image)
 		img = &opgoutil.Image{Custom: beImage, PullPolicy: pullPolicy}
@@ -234,7 +234,7 @@ func NewBeStatefulSetReconciler(
 	)
 
 	beBuilder := NewBeStatefulSetBuilder(commonBuilder, roleGroupConfig)
-	// stopped
+	// Set stopped flag
 	stopped := false
 	if clusterOperation != nil && clusterOperation.Stopped {
 		stopped = true

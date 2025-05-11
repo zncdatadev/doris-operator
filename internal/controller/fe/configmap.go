@@ -2,6 +2,7 @@ package fe
 
 import (
 	"context"
+	"strings"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/common"
@@ -9,12 +10,15 @@ import (
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/productlogging"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 )
 
 // FEConfigMapBuilder implements common.ConfigMapComponentBuilder
 type FEConfigMapBuilder struct {
 	*builder.ConfigMapBuilder
+	overrides  *commonsv1alpha1.OverridesSpec
+	roleConfig *commonsv1alpha1.RoleGroupConfigSpec
 }
 
 func NewFEConfigMapReconciler(
@@ -25,7 +29,10 @@ func NewFEConfigMapReconciler(
 	roleConfig *commonsv1alpha1.RoleGroupConfigSpec,
 	dorisCluster *dorisv1alpha1.DorisCluster,
 ) reconciler.ResourceReconciler[builder.ConfigBuilder] {
-	feBuilder := &FEConfigMapBuilder{}
+	feBuilder := &FEConfigMapBuilder{
+		overrides:  overrides,
+		roleConfig: roleConfig,
+	}
 	commonBuilder := common.NewConfigMapBuilder(
 		ctx,
 		client,
@@ -39,34 +46,62 @@ func NewFEConfigMapReconciler(
 	return reconciler.NewGenericResourceReconciler(client, commonBuilder)
 }
 
+// BuildConfig returns component-specific configuration content
 func (b *FEConfigMapBuilder) BuildConfig() (map[string]string, error) {
 	configs := make(map[string]string)
 
-	// FE 默认配置
+	// Default FE configuration
 	feConfig := []string{
-		// Shell 变量设置
+		// Shell environment variables
 		"CUR_DATE=`date +%Y%m%d-%H%M%S`",
-		// 日志目录配置
-		"LOG_DIR=${DORIS_HOME}/log",
-		// Java 选项配置
-		"JAVA_OPTS=-Djavax.security.auth.useSubjectCredsOnly=false -Xss4m -Xmx8192m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$CUR_DATE",
-		// JDK 9+ Java 选项配置
+		// Log directory configuration
+		"LOG_DIR=/kubedoop/log",
+		// Java options configuration
+		"JAVA_OPTS=-Xss4m -Xmx8192m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$CUR_DATE:time",
 		"JAVA_OPTS_FOR_JDK_9=-Djavax.security.auth.useSubjectCredsOnly=false -Xss4m -Xmx8192m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:$DORIS_HOME/log/fe.gc.log.$CUR_DATE:time",
-		// 系统日志配置
+		// System log configuration
 		"sys_log_level = INFO",
 		"sys_log_mode = NORMAL",
-		// JDBC 驱动配置
+		// JDBC driver configuration
 		"# jdbc_drivers_dir = ${DORIS_HOME}/jdbc_drivers",
-		// FE 服务端口配置
+		// FE service ports configuration
 		"http_port = 8030",
 		"rpc_port = 9020",
 		"query_port = 9030",
 		"edit_log_port = 9010",
-		"enable_fqdn_mode = true",
+		// Advanced configuration
+		"max_conn_per_be = 1024",
+		"disable_storage_medium_check = false",
 	}
 
-	configs[common.FEConfigFilename] = formatConfig(feConfig)
+	configs[string(constants.FEConfigFilename)] = strings.Join(feConfig, "\n")
+	configs[string(constants.FELog4j2ConfigFilename)] = b.log4j2ConfigContent()
 	return configs, nil
+}
+
+// only fe add log4j2-spring.xml
+func (b *FEConfigMapBuilder) log4j2ConfigContent() string {
+	if b.roleConfig != nil && b.roleConfig.Logging != nil && b.roleConfig.Logging.Containers != nil {
+		if mainContainerLogging, ok := b.roleConfig.Logging.Containers[string(constants.ComponentTypeFE)]; ok {
+			loggingSpec := &mainContainerLogging
+			loggingConfig, err := productlogging.NewConfigGenerator(
+				loggingSpec,
+				string(constants.ComponentTypeFE),
+				constants.FELogFileName,
+				productlogging.LogTypeLog4j2,
+			)
+			if err != nil {
+				return ""
+			}
+
+			if logConfig, err := loggingConfig.Content(); err == nil {
+				return logConfig
+			} else {
+				return ""
+			}
+		}
+	}
+	return ""
 }
 
 // GetPriorityNetworks returns the priority networks configuration for FE

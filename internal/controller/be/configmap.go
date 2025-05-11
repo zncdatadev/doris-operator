@@ -2,6 +2,7 @@ package be
 
 import (
 	"context"
+	"strings"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/common"
@@ -39,31 +40,36 @@ func NewBEConfigMapReconciler(
 	return reconciler.NewGenericResourceReconciler(client, commonBuilder)
 }
 
+// BuildConfig returns component-specific configuration content
 func (b *BEConfigMapBuilder) BuildConfig() (map[string]string, error) {
 	configs := make(map[string]string)
 
-	// BE 默认配置
+	// Default BE configuration
 	beConfig := []string{
-		// Shell 变量设置
+		// Shell environment variables
 		"CUR_DATE=`date +%Y%m%d-%H%M%S`",
+		// Profile directory configuration
 		"PPROF_TMPDIR=$DORIS_HOME/log/",
-		// Java 选项配置
+		// Java options configuration
 		"JAVA_OPTS=-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xloggc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Djavax.security.auth.useSubjectCredsOnly=false -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000",
-		// JDK 9+ Java 选项配置
+		// Java options for JDK 9+
 		"JAVA_OPTS_FOR_JDK_9=-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xlog:gc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Djavax.security.auth.useSubjectCredsOnly=false -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000",
-		// Jemalloc 配置
+		// Jemalloc configuration
 		"JEMALLOC_CONF=percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,lg_tcache_max:20,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false",
-		"JEMALLOC_PROF_PRFIX=",
-		// 系统日志级别
-		"sys_log_level = INFO",
-		// BE 服务端口配置
+		// BE service ports configuration
+		"# See more BE configurations at https://doris.apache.org/docs/admin-manual/config/be-config",
 		"be_port = 9060",
 		"webserver_port = 8040",
 		"heartbeat_service_port = 9050",
 		"brpc_port = 8060",
+		// Storage configuration
+		"storage_root_path = ${DORIS_HOME}/storage",
+		// System settings
+		"sys_log_level = INFO",
+		"be_service_type = LOCAL",
 	}
 
-	configs[common.BEConfigFilename] = formatConfig(beConfig)
+	configs["be.conf"] = strings.Join(beConfig, "\n")
 	return configs, nil
 }
 

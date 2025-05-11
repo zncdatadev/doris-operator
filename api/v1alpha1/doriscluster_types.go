@@ -75,6 +75,14 @@ type ClusterConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:="example.com"
 	IngressHost string `json:"ingressHost,omitempty"`
+
+	// Name of the Vector aggregator [discovery ConfigMap].
+	// It must contain the key `ADDRESS` with the address of the Vector aggregator.
+	// Follow the [logging tutorial](DOCS_BASE_URL_PLACEHOLDER/tutorials/logging-vector-aggregator)
+	// to learn how to configure log aggregation with Vector.
+
+	// +kubebuilder:validation:Optional
+	VectorAggregatorConfigMapName *string `json:"vectorAggregatorConfigMapName,omitempty"`
 }
 
 type RoleSpec struct {

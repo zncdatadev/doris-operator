@@ -25,6 +25,9 @@ Dockerfile.cross
 *.swo
 *~
 
+## vscode
+.devcontainer
+
 kind-kubeconfig*
 
 *-local.yaml
@@ -37,3 +40,6 @@ cover.out
 
 # ai code local
 .codiumai.toml
+
+## vscode
+.vscode
