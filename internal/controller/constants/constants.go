@@ -15,7 +15,6 @@ const (
 	FEConfigFilename       = "fe.conf"
 	BEConfigFilename       = "be.conf"
 	FELog4j2ConfigFilename = "log4j2.properties"
-
 )
 
 const FELogFileName = "fe.log4j2.xml"

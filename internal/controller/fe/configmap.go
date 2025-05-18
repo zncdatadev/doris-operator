@@ -109,7 +109,8 @@ func GetPriorityNetworks() string {
 	return "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 
-// formatConfig converts a slice of config lines to a single string
+// Unused function commented out to fix lint errors
+/*
 func formatConfig(configs []string) string {
 	var result string
 	for _, line := range configs {
@@ -117,3 +118,4 @@ func formatConfig(configs []string) string {
 	}
 	return result
 }
+*/

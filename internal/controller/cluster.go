@@ -147,9 +147,12 @@ func createIngressResource(client *resourceClient.Client, clusterInfo reconciler
 	return nil
 }
 
+// Unused function commented out to fix lint errors
+/*
 // Helper function to create service account (placeholder)
 func createServiceAccount(client *resourceClient.Client, name string) reconciler.Reconciler {
 	// Implementation for creating service account goes here
 	// For now, return nil as this is just a placeholder
 	return nil
 }
+*/

@@ -212,7 +212,7 @@ func NewBeStatefulSetReconciler(
 	overrides *commonsv1alpha1.OverridesSpec,
 ) (reconciler.ResourceReconciler[builder.StatefulSetBuilder], error) {
 	// Create image object
-	var img *opgoutil.Image = image
+	img := image
 
 	if img == nil {
 		// Get BE component image using common package function
@@ -235,10 +235,7 @@ func NewBeStatefulSetReconciler(
 
 	beBuilder := NewBeStatefulSetBuilder(commonBuilder, roleGroupConfig)
 	// Set stopped flag
-	stopped := false
-	if clusterOperation != nil && clusterOperation.Stopped {
-		stopped = true
-	}
+	stopped := clusterOperation != nil && clusterOperation.Stopped
 	return reconciler.NewStatefulSet(
 		client,
 		beBuilder,

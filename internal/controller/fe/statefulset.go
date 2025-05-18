@@ -205,7 +205,7 @@ func NewFeStatefulSetReconciler(
 	roleGroupConfig *dorisv1alpha1.ConfigSpec,
 	overrides *commonsv1alpha1.OverridesSpec,
 ) (reconciler.ResourceReconciler[builder.StatefulSetBuilder], error) {
-	var img *opgoutil.Image = image
+	img := image
 
 	if img == nil {
 		// Get FE component image using common package function
@@ -228,10 +228,7 @@ func NewFeStatefulSetReconciler(
 
 	feBuilder := NewFeStatefulSetBuilder(commonBuilder, roleGroupConfig)
 	// Set stopped flag
-	stopped := false
-	if clusterOperation != nil && clusterOperation.Stopped {
-		stopped = true
-	}
+	stopped := clusterOperation != nil && clusterOperation.Stopped
 	return reconciler.NewStatefulSet(
 		client,
 		feBuilder,
