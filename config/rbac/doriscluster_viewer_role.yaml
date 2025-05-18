@@ -1,0 +1,23 @@
+# permissions for end users to view dorisclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: doris-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: doriscluster-viewer-role
+rules:
+- apiGroups:
+  - doris.kubedoop.dev
+  resources:
+  - dorisclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - doris.kubedoop.dev
+  resources:
+  - dorisclusters/status
+  verbs:
+  - get

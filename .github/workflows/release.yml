@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
+
+
+jobs:
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: |
+            README.*.md
+            docs/*.md
+
+
+  golang-lint:
+    name: golang-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v8
+
+
+  golang-test:
+    name: Golang Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Running Tests
+        run: |
+          go mod tidy
+          make test
+
+
+  chainsaw-test:
+    name: Chainsaw Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s-version: [
+          '1.26.15',
+          '1.27.16',
+          '1.28.15',
+          '1.29.12',
+          '1.30.8',
+          '1.31.4',
+          '1.32.0'
+        ]
+        product_version: ['2.1.8']
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Create KinD cluster
+        env:
+          KIND_K8S_VERSION: ${{ matrix.k8s-version}}
+          KUBECONFIG: kind-kubeconfig-${{ matrix.k8s-version }}
+        run: make kind-create
+
+      - name: Chainsaw test setup
+        env:
+          KIND_K8S_VERSION: ${{ matrix.k8s-version }}
+          KUBECONFIG: kind-kubeconfig-${{ matrix.k8s-version }}
+        run: make chainsaw-setup
+
+      - name: Test with Chainsaw
+        env:
+          KIND_K8S_VERSION: ${{ matrix.k8s-version }}
+          KUBECONFIG: kind-kubeconfig-${{ matrix.k8s-version }}
+          PRODUCT_VERSION: ${{ matrix.product_version }}
+        run: make chainsaw-test
+
+
+  release-image:
+    name: Release Image
+    if: ${{ github.repository_owner == 'zncdatadev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for OIDC for cosign to automatically use
+    needs:
+      - markdown-lint
+      - golang-lint
+      - golang-test
+      - chainsaw-test
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Cosign
+        uses: sigstore/cosign-installer@main
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Login to quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push operator
+        run: |
+          make docker-buildx
+
+      - name: Sign image
+        run: |
+          # docker buildx metadata file will write to docker-digests.json, it contains built image digests
+          # we need to extract the image digest from it, and convert it to OCI digest, then use cosign to sign it
+          IMAGE_NAME=$(jq -r '.["image.name"]' docker-digests.json)
+          IMAGE_DIGEST=$(jq -r '.["containerimage.digest"]' docker-digests.json)
+
+          # Convert to OCI digest
+          IMAGE_REF="${IMAGE_NAME%:*}@${IMAGE_DIGEST}"
+
+          echo "Signing image: $IMAGE_REF"
+
+          # Use cosign to sign the image
+          cosign sign --yes ${IMAGE_REF}
