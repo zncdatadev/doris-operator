@@ -43,3 +43,5 @@ cover.out
 
 ## vscode
 .vscode
+
+docker-digests.json
