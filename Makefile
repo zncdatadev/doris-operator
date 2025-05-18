@@ -96,9 +96,13 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 ##@ Build
 
+LDFLAGS = "-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.BuildVersion=$(VERSION) \
+-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.GitCommit=$(BUILD_COMMIT) \
+-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.BuildTime=$(BUILD_TIMESTAMP)"
+
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags $(LDFLAGS) -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -109,7 +113,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg LDFLAGS=$(LDFLAGS) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -127,7 +131,7 @@ BUILDX_METADATA_FILE ?= docker-digests.json	# The file to store the digests of t
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	- $(CONTAINER_TOOL) buildx create --name $(PROJECT_NAME)-builder
 	$(CONTAINER_TOOL) buildx use $(PROJECT_NAME)-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} --metadata-file ${BUILDX_METADATA_FILE} -f Dockerfile .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg LDFLAGS=$(LDFLAGS) --tag ${IMG} --metadata-file ${BUILDX_METADATA_FILE} -f Dockerfile .
 	- $(CONTAINER_TOOL) buildx rm $(PROJECT_NAME)-builder
 
 .PHONY: build-installer
