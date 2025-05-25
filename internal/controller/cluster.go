@@ -127,32 +127,5 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		r.AddResource(beReconciler)
 		clusterLogger.Info("Registered BE role")
 	}
-
-	// Optional: Register cluster-level ingress if configured
-	if r.ClusterConfig != nil && r.ClusterConfig.IngressHost != "" {
-		ingress := createIngressResource(r.Client, r.ClusterInfo, r.ClusterConfig.IngressHost)
-		if ingress != nil {
-			r.AddResource(ingress)
-			clusterLogger.Info("Registered Ingress resource")
-		}
-	}
-
 	return nil
 }
-
-// Helper function to create ingress resource (placeholder)
-func createIngressResource(client *resourceClient.Client, clusterInfo reconciler.ClusterInfo, host string) reconciler.Reconciler {
-	// Implementation for creating ingress goes here
-	// For now, return nil as this is just a placeholder
-	return nil
-}
-
-// Unused function commented out to fix lint errors
-/*
-// Helper function to create service account (placeholder)
-func createServiceAccount(client *resourceClient.Client, name string) reconciler.Reconciler {
-	// Implementation for creating service account goes here
-	// For now, return nil as this is just a placeholder
-	return nil
-}
-*/

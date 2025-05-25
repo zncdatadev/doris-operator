@@ -79,7 +79,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		importedVersion := version.NewAppInfo("superset-operator").String()
+		importedVersion := version.NewAppInfo("doris-operator").String()
 		println(importedVersion)
 		os.Exit(0)
 	}
