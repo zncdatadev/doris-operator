@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: client-access
+data:
+  client-access.sh: |
+    #!/usr/bin/env bash
+
+    # to be safe
+    unset TOPIC
+    unset BAD_TOPIC
+
+    echo "Connecting to boostrap address $KAFKA"
+
+    echo "Start client access testing..."
+    ############################################################################
+    # Test the secured connection
+    ############################################################################
+    # create random topics
+    TOPIC=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 20 ; echo '')
+    BAD_TOPIC=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 20 ; echo '')
+
+    if /kubedoop/kafka/bin/kafka-topics.sh --create --topic "$TOPIC" --bootstrap-server "$KAFKA"
+    then
+      echo "[SUCCESS] client topic created!"
+    else
+      echo "[ERROR] client topic creation failed!"
+      exit 1
+    fi
+
+    if /kubedoop/kafka/bin/kafka-topics.sh --list --topic "$TOPIC" --bootstrap-server "$KAFKA" | grep "$TOPIC"
+    then
+      echo "[SUCCESS] client topic read!"
+    else
+      echo "[ERROR] client topic read failed!"
+      exit 1
+    fi
+
+    ############################################################################
+    # Test the connection with bad host name
+    ############################################################################
+    if /kubedoop/kafka/bin/kafka-topics.sh --create --topic "$BAD_TOPIC" --bootstrap-server localhost:9093 &> /dev/null
+    then
+      echo "[ERROR] client topic created with bad host name!"
+      exit 1
+    else
+      echo "[SUCCESS] client topic creation failed with bad host name - 'localhost:9093' !"
+    fi
+
+    ############################################################################
+    # Test producer and consumer
+    ############################################################################
+    # echo "Start producer and consumer testing..."
+    # echo "Hello, World!" | /kubedoop/kafka/bin/kafka-console-producer.sh --topic "$TOPIC" --bootstrap-server "$KAFKA"
+
+    # if /kubedoop/kafka/bin/kafka-console-consumer.sh --topic "$TOPIC" --from-beginning --bootstrap-server "$KAFKA" --max-messages 1 --timeout-ms 20000 | grep "Hello, World!"
+    # then
+    #   echo "[SUCCESS] producer and consumer testing!"
+    # else
+    #   echo "[ERROR] producer and consumer testing failed!"
+    #   exit 1
+    # fi
+
+    echo "All tests successful!"
+    exit 0

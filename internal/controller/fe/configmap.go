@@ -42,6 +42,7 @@ func NewFEConfigMapReconciler(
 		roleConfig,
 		dorisCluster,
 		feBuilder,
+		common.GetVectorConfigMapName(dorisCluster),
 	)
 	return reconciler.NewGenericResourceReconciler(client, commonBuilder)
 }

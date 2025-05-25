@@ -1,0 +1,25 @@
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: doris-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: doriscluster-sample
+spec:
+  clusterConfig:
+    vectorAggregatorConfigMapName: vector-aggregator-discovery
+  frontEnd:
+    roleGroups:
+      default:
+        replicas: 1
+        config:
+          logging:
+            enableVectorAgent: true
+            containers:
+              fe:
+                console:
+                  level: INFO
+  backEnd:
+    roleGroups:
+      default:
+        replicas: 1
