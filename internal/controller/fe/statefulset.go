@@ -111,16 +111,16 @@ func (b *FeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 // GetVolumes implements ComponentInterface, returns FE specific volumes
 func (b *FeStatefulSetBuilder) GetVolumes() []corev1.Volume {
 	return []corev1.Volume{
-		{
-			Name: constants.ConfigVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: b.GetRoleGroupInfo().GetFullName(),
-					},
-				},
-			},
-		},
+		// {
+		// 	Name: constants.ConfigVolumeName,
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
+		// 			LocalObjectReference: corev1.LocalObjectReference{
+		// 				Name: b.GetRoleGroupInfo().GetFullName(),
+		// 			},
+		// 		},
+		// 	},
+		// },
 	}
 }
 

@@ -121,16 +121,16 @@ func (b *BeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 // GetVolumes implements ComponentInterface, returns BE specific volumes
 func (b *BeStatefulSetBuilder) GetVolumes() []corev1.Volume {
 	return []corev1.Volume{
-		{
-			Name: constants.ConfigVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: b.GetRoleGroupInfo().GetFullName(),
-					},
-				},
-			},
-		},
+		// {
+		// 	Name: constants.ConfigVolumeName,
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
+		// 			LocalObjectReference: corev1.LocalObjectReference{
+		// 				Name: b.GetRoleGroupInfo().GetFullName(),
+		// 			},
+		// 		},
+		// 	},
+		// },
 	}
 }
 
