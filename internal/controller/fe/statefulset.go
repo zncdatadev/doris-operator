@@ -72,8 +72,32 @@ func (b *FeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 
 	// Get resource requirements
 	resources := getFeResourcesSpec()
-	if b.feRole != nil && b.feRole.Resources != nil {
-		resources = b.feRole.Resources
+	// If resources are specified in RoleConfig, use them
+	if b.feRole != nil {
+		if b.feRole.Resources != nil {
+			if b.feRole.Resources.CPU == nil && b.feRole.Resources.Memory == nil {
+				resources = &commonsv1alpha1.ResourcesSpec{
+					CPU:    nil,
+					Memory: nil,
+				}
+			} else {
+				if b.feRole.Resources.CPU != nil {
+					// if cpu is not nil and max and min both zero, then not set resources
+					if b.feRole.Resources.CPU.Max.IsZero() && b.feRole.Resources.CPU.Min.IsZero() {
+						resources.CPU = nil
+					} else {
+						resources.CPU = b.feRole.Resources.CPU
+					}
+				}
+				if b.feRole.Resources.Memory != nil {
+					if b.feRole.Resources.Memory.Limit.IsZero() {
+						resources.Memory = nil
+					} else {
+						resources.Memory = b.feRole.Resources.Memory
+					}
+				}
+			}
+		}
 	}
 
 	// Create base container

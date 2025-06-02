@@ -375,6 +375,15 @@ spec:
                 type: object
               clusterConfig:
                 properties:
+                  authentication:
+                    items:
+                      properties:
+                        authenticationClass:
+                          type: string
+                      required:
+                      - authenticationClass
+                      type: object
+                    type: array
                   clusterDomain:
                     default: cluster.local
                     type: string

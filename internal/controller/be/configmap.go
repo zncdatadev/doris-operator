@@ -26,7 +26,15 @@ func NewBEConfigMapReconciler(
 	roleConfig *commonsv1alpha1.RoleGroupConfigSpec,
 	dorisCluster *dorisv1alpha1.DorisCluster,
 ) reconciler.ResourceReconciler[builder.ConfigBuilder] {
-	beBuilder := &BEConfigMapBuilder{}
+	beBuilder := &BEConfigMapBuilder{
+		ConfigMapBuilder: builder.NewConfigMapBuilder(
+			client,
+			roleGroupInfo.GetFullName(),
+			func(o *builder.Options) {
+				o.Labels = roleGroupInfo.GetLabels()
+				o.Annotations = roleGroupInfo.GetAnnotations()
+			}),
+	}
 	commonBuilder := common.NewConfigMapBuilder(
 		ctx,
 		client,
@@ -42,7 +50,7 @@ func NewBEConfigMapReconciler(
 }
 
 // BuildConfig returns component-specific configuration content
-func (b *BEConfigMapBuilder) BuildConfig() (map[string]string, error) {
+func (b *BEConfigMapBuilder) BuildConfig(ctx context.Context) (map[string]string, error) {
 	configs := make(map[string]string)
 	beConfig := []string{
 		// Default BE configuration
@@ -53,15 +61,15 @@ func (b *BEConfigMapBuilder) BuildConfig() (map[string]string, error) {
 		"JAVA_OPTS_FOR_JDK_17=\"-Dfile.encoding=UTF-8 -Xmx2048m -DlogPath=$LOG_DIR/jni.log -Xlog:gc:$LOG_DIR/be.gc.log.$CUR_DATE -Djavax.security.auth.useSubjectCredsOnly=false -Dsun.security.krb5.debug=true -Dsun.java.command=DorisBE -XX:-CriticalJNINatives --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED -Darrow.enable_null_check_for_get=false\"",
 		"JEMALLOC_CONF=\"percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:true,prof_active:false,lg_prof_interval:-1\"",
 		"JEMALLOC_PROF_PRFIX=\"jemalloc_heap_profile_\"",
-		"be_port = 9060",
-		"webserver_port = 8040",
-		"heartbeat_service_port = 9050",
-		"brpc_port = 8060",
-		"arrow_flight_sql_port = -1",
-		"enable_https = false",
-		"ssl_certificate_path = \"$DORIS_HOME/conf/cert.pem\"",
-		"ssl_private_key_path = \"$DORIS_HOME/conf/key.pem\"",
-		"sys_log_level = INFO",
+		"be_port=9060",
+		"webserver_port=8040",
+		"heartbeat_service_port=9050",
+		"brpc_port=8060",
+		"arrow_flight_sql_port=-1",
+		"enable_https=false",
+		"ssl_certificate_path=\"$DORIS_HOME/conf/cert.pem\"",
+		"ssl_private_key_path=\"$DORIS_HOME/conf/key.pem\"",
+		"sys_log_level=INFO",
 		"aws_log_level=0",
 		"AWS_EC2_METADATA_DISABLED=true",
 	}

@@ -1,0 +1,39 @@
+apiVersion: authentication.kubedoop.dev/v1alpha1
+kind: AuthenticationClass
+metadata:
+  name: ldap
+spec:
+  provider:
+    ldap:
+      bindCredentials:
+        secretClass: ldap-credentials
+        # scope:
+        #   pod: true
+      hostname: openldap
+      port: 1389
+      ldapFieldNames:
+        email: mail
+        uid: uid
+      searchBase: ($LDAP_BASE_DN)
+      searchFilter: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-credentials
+  labels:
+    secrets.kubedoop.dev/class: ldap-credentials
+type: Opaque
+stringData:
+  user: ($DORIS_LDAP_SERVICE_USER)
+  password: ($DORIS_LDAP_SERVICE_PASSWORD)
+---
+apiVersion: secrets.kubedoop.dev/v1alpha1
+kind: SecretClass
+metadata:
+  name: ldap-credentials
+spec:
+  backend:
+    k8sSearch:
+      searchNamespace:
+        pod: {}

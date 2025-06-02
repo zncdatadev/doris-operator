@@ -1,0 +1,60 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: ldap
+spec:
+  bindings:
+  - name: LDAP_ADMIN_USERNAME
+    value: admin
+  - name: LDAP_ADMIN_PASSWORD
+    value: admin
+  - name: DORIS_USER1
+    value: doris
+  - name: DORIS_PASSWORD1
+    value: doris
+  - name: LDAP_BASE_DN
+    value: ou=users,dc=example,dc=com
+  - name: LDAP_ROOT_DC
+    value: dc=example,dc=com
+  - name: DORIS_LDAP_SERVICE_USER
+    value: uid=ldapadmin,ou=users,dc=example,dc=com
+  - name: DORIS_LDAP_SERVICE_PASSWORD
+    value: ldapadmin
+  steps:
+  - name: install openldap
+    try:
+    - apply:
+        file: openldap.yaml
+    - assert:
+        file: openldap-assert.yaml
+    - apply:
+        file: ldap.yaml
+    - assert:
+        file: ldap-assert.yaml
+  - name: install doris cluster
+    try:
+    - apply:
+        file: doris.yaml
+    - assert:
+        timeout: 400s
+        file: doris-assert.yaml
+    cleanup:
+    - sleep:
+        duration: 30s
+    catch:
+      - sleep:
+          duration: 5s
+      - script:
+          env:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            set -ex
+            kubectl -n $NAMESPACE get pods
+      - describe:
+          apiVersion: v1
+          kind: Pod
+          selector: app.kubernetes.io/instance=test-doris
+      - podLogs:
+          selector: app.kubernetes.io/instance=test-doris
+          tail: -1

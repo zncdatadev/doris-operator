@@ -71,13 +71,13 @@ func NewConfigMapBuilder(
 // ConfigMapComponentBuilder defines methods that should be implemented by BE/FE specific builders
 type ConfigMapComponentBuilder interface {
 	// BuildConfig returns component-specific configuration content
-	BuildConfig() (map[string]string, error)
+	BuildConfig(ctx context.Context) (map[string]string, error)
 }
 
 // Build constructs the ConfigMap object combining common and component-specific configurations
 func (b *ConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
 	// Get component-specific configurations
-	configs, err := b.component.BuildConfig()
+	configs, err := b.component.BuildConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func GetVectorConfigMapName(cluster *dorisv1alpha1.DorisCluster) string {
 	if cluster == nil {
 		return ""
 	}
-	if cluster.Spec.ClusterConfig != nil && *cluster.Spec.ClusterConfig.VectorAggregatorConfigMapName != "" {
+	if cluster.Spec.ClusterConfig != nil && cluster.Spec.ClusterConfig.VectorAggregatorConfigMapName != nil {
 		return *cluster.Spec.ClusterConfig.VectorAggregatorConfigMapName
 	}
 	return ""

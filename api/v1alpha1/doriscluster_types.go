@@ -83,6 +83,9 @@ type ClusterConfigSpec struct {
 
 	// +kubebuilder:validation:Optional
 	VectorAggregatorConfigMapName *string `json:"vectorAggregatorConfigMapName,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Authentication []AuthenticationSpec `json:"authentication,omitempty"`
 }
 
 type RoleSpec struct {
