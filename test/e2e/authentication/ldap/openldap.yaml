@@ -89,11 +89,11 @@ spec:
       restartPolicy: Always
       containers:
       - name: openldap
-        resources:
-          limits:
-            cpu: 300m
-            memory: 256Mi
-        image: bitnami/openldap:latest
+        # resources:
+        #   limits:
+        #     cpu: 300m
+        #     memory: 256Mi
+        image: bitnamilegacy/openldap:2.6.10-debian-12-r4
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 1389

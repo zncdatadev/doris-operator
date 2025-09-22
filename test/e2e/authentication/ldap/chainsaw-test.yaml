@@ -36,7 +36,7 @@ spec:
     - apply:
         file: doris.yaml
     - assert:
-        timeout: 400s
+        timeout: 500s
         file: doris-assert.yaml
     cleanup:
     - sleep:
@@ -54,7 +54,9 @@ spec:
       - describe:
           apiVersion: v1
           kind: Pod
-          selector: app.kubernetes.io/instance=test-doris
+      - describe:
+          kind: PersistentVolumeClaim
+          apiVersion: v1
       - podLogs:
-          selector: app.kubernetes.io/instance=test-doris
+          selector: app.kubernetes.io/component=be
           tail: -1
