@@ -41,8 +41,7 @@ jobs:
           # '1.31.4',
           '1.32.0'
         ]
-        product_version: ['4.0.2']
-      max-parallel: 1
+        product_version: ['2.1.8']
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
