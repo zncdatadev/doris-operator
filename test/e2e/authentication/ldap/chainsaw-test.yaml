@@ -38,19 +38,13 @@ spec:
     - assert:
         timeout: 500s
         file: doris-assert.yaml
-    cleanup:
-    - sleep:
-        duration: 30s
     catch:
       - sleep:
           duration: 5s
-      - script:
-          env:
-            - name: NAMESPACE
-              value: ($namespace)
-          content: |
-            set -ex
-            kubectl -n $NAMESPACE get pods
+      - get:
+          kind: Pod
+          apiVersion: v1
+          namespace: '*'
       - describe:
           apiVersion: v1
           kind: Pod
@@ -59,4 +53,5 @@ spec:
           apiVersion: v1
       - podLogs:
           selector: app.kubernetes.io/component=be
-          tail: -1
+      - podLogs:
+          selector: app.kubernetes.io/component=fe

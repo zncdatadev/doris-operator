@@ -11,3 +11,20 @@ spec:
         file: doris.yaml
     - assert:
         file: doris-assert.yaml
+    catch:
+      - sleep:
+          duration: 5s
+      - get:
+          kind: Pod
+          apiVersion: v1
+          namespace: '*'
+      - describe:
+          apiVersion: v1
+          kind: Pod
+      - describe:
+          kind: PersistentVolumeClaim
+          apiVersion: v1
+      - podLogs:
+          selector: app.kubernetes.io/component=be
+      - podLogs:
+          selector: app.kubernetes.io/component=fe
