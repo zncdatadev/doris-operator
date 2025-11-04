@@ -126,8 +126,8 @@ const (
 	DefaultCPURequest = "2"
 
 	// Memory limits
-	FEMemoryLimit = "4Gi"
-	BEMemoryLimit = "6Gi"
+	FEMemoryLimit = "1Gi"
+	BEMemoryLimit = "2Gi"
 
 	// Storage sizes
 	FEStorageSize = "10Gi"
