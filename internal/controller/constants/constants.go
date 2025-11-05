@@ -163,7 +163,7 @@ const (
 // Command related constants
 const (
 	// Init container command for BE
-	BEInitCommand = "sysctl -w vm.max_map_count=2000000 && swapoff -a || true"
+	BEInitCommand = "sysctl -w vm.max_map_count=2000000 && swapoff -a"
 )
 
 // Labels and annotations
