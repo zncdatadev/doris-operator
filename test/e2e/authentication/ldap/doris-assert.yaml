@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-fe-default
+status:
+  replicas: 1
+  availableReplicas: 1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-be-default
+status:
+  replicas: 1
+  availableReplicas: 1

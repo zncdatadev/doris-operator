@@ -1,0 +1,34 @@
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: doris-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: doriscluster-sample
+spec:
+  clusterConfig:
+    vectorAggregatorConfigMapName: vector-aggregator-discovery
+  frontEnd:
+    roleGroups:
+      default:
+        replicas: 1
+        config:
+          logging:
+            enableVectorAgent: true
+            containers:
+              fe:
+                console:
+                  level: INFO
+          resources:
+            cpu: {}
+  backEnd:
+    roleGroups:
+      default:
+        replicas: 1
+        config:
+          resources:
+            cpu: {}
+        envOverrides:
+          # When doris be starts, it will check `vm.max_map_count` lt 2000000 and swappiness is disabled.
+          # Due to swappiness is not configurable in kind cluster, skip ulimit check to avoid test failure.
+          SKIP_CHECK_ULIMIT: "true"

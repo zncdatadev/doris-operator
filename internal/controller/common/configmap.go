@@ -44,6 +44,7 @@ func NewConfigMapBuilder(
 	roleConfig *commonsv1alpha1.RoleGroupConfigSpec,
 	dorisCluster *dorisv1alpha1.DorisCluster,
 	component ConfigMapComponentBuilder,
+	vectorvectorAggregatorConfigMapName string,
 ) builder.ConfigBuilder {
 	return &ConfigMapBuilder{
 		ConfigMapBuilder: *builder.NewConfigMapBuilder(
@@ -54,28 +55,29 @@ func NewConfigMapBuilder(
 				o.Annotations = roleGroupInfo.GetAnnotations()
 			},
 		),
-		client:        client,
-		componentType: componentType,
-		clusterName:   roleGroupInfo.GetClusterName(),
-		roleGroupInfo: roleGroupInfo,
-		dorisCluster:  dorisCluster,
-		overrides:     overrides,
-		roleConfig:    roleConfig,
-		ctx:           ctx,
-		component:     component,
+		client:                              client,
+		componentType:                       componentType,
+		clusterName:                         roleGroupInfo.GetClusterName(),
+		roleGroupInfo:                       roleGroupInfo,
+		dorisCluster:                        dorisCluster,
+		overrides:                           overrides,
+		roleConfig:                          roleConfig,
+		ctx:                                 ctx,
+		component:                           component,
+		vectorvectorAggregatorConfigMapName: vectorvectorAggregatorConfigMapName,
 	}
 }
 
 // ConfigMapComponentBuilder defines methods that should be implemented by BE/FE specific builders
 type ConfigMapComponentBuilder interface {
 	// BuildConfig returns component-specific configuration content
-	BuildConfig() (map[string]string, error)
+	BuildConfig(ctx context.Context) (map[string]string, error)
 }
 
 // Build constructs the ConfigMap object combining common and component-specific configurations
 func (b *ConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
 	// Get component-specific configurations
-	configs, err := b.component.BuildConfig()
+	configs, err := b.component.BuildConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +97,7 @@ func (b *ConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object, error)
 	}
 
 	// vector config
-	if IsVectorEnable(b.roleConfig.Logging) {
+	if b.roleConfig != nil && IsVectorEnable(b.roleConfig.Logging) {
 		if vectorConfig, err := b.buildVectorConfig(ctx); err != nil {
 			return nil, err
 		} else if vectorConfig != "" {
@@ -129,4 +131,14 @@ func (b *ConfigMapBuilder) buildVectorConfig(ctx context.Context) (string, error
 		}
 	}
 	return "", nil
+}
+
+func GetVectorConfigMapName(cluster *dorisv1alpha1.DorisCluster) string {
+	if cluster == nil {
+		return ""
+	}
+	if cluster.Spec.ClusterConfig != nil && cluster.Spec.ClusterConfig.VectorAggregatorConfigMapName != nil {
+		return *cluster.Spec.ClusterConfig.VectorAggregatorConfigMapName
+	}
+	return ""
 }

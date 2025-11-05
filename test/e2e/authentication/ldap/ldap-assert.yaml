@@ -1,0 +1,19 @@
+apiVersion: authentication.kubedoop.dev/v1alpha1
+kind: AuthenticationClass
+metadata:
+  name: ldap
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-credentials
+---
+apiVersion: secrets.kubedoop.dev/v1alpha1
+kind: SecretClass
+metadata:
+  name: ldap-credentials
+spec:
+  backend:
+    k8sSearch:
+      searchNamespace:
+        pod: {}

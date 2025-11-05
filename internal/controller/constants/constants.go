@@ -15,6 +15,7 @@ const (
 	FEConfigFilename       = "fe.conf"
 	BEConfigFilename       = "be.conf"
 	FELog4j2ConfigFilename = "log4j2.properties"
+	LDAPConfigFilename     = "ldap.conf"
 )
 
 const FELogFileName = "fe.log4j2.xml"
@@ -125,8 +126,8 @@ const (
 	DefaultCPURequest = "2"
 
 	// Memory limits
-	FEMemoryLimit = "4Gi"
-	BEMemoryLimit = "6Gi"
+	FEMemoryLimit = "1Gi"
+	BEMemoryLimit = "2Gi"
 
 	// Storage sizes
 	FEStorageSize = "10Gi"
@@ -162,7 +163,7 @@ const (
 // Command related constants
 const (
 	// Init container command for BE
-	BEInitCommand = "sysctl -w vm.max_map_count=2000000 && swapoff -a || true"
+	BEInitCommand = "sysctl -w vm.max_map_count=2000000 && swapoff -a"
 )
 
 // Labels and annotations

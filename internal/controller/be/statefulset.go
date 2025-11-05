@@ -74,8 +74,31 @@ func (b *BeStatefulSetBuilder) GetMainContainer() *corev1.Container {
 	resources := getBeResourcesSpec()
 
 	// If resources are specified in RoleConfig, use them
-	if b.beRole != nil && b.beRole.Resources != nil {
-		resources = b.beRole.Resources
+	if b.beRole != nil {
+		if b.beRole.Resources != nil {
+			if b.beRole.Resources.CPU == nil && b.beRole.Resources.Memory == nil {
+				resources = &commonsv1alpha1.ResourcesSpec{
+					CPU:    nil,
+					Memory: nil,
+				}
+			} else {
+				if b.beRole.Resources.CPU != nil {
+					// if cpu is not nil and max and min both zero, then not set resources
+					if b.beRole.Resources.CPU.Max.IsZero() && b.beRole.Resources.CPU.Min.IsZero() {
+						resources.CPU = nil
+					} else {
+						resources.CPU = b.beRole.Resources.CPU
+					}
+				}
+				if b.beRole.Resources.Memory != nil {
+					if b.beRole.Resources.Memory.Limit.IsZero() {
+						resources.Memory = nil
+					} else {
+						resources.Memory = b.beRole.Resources.Memory
+					}
+				}
+			}
+		}
 	}
 
 	// Create base container
@@ -121,16 +144,16 @@ func (b *BeStatefulSetBuilder) GetInitContainers() []corev1.Container {
 // GetVolumes implements ComponentInterface, returns BE specific volumes
 func (b *BeStatefulSetBuilder) GetVolumes() []corev1.Volume {
 	return []corev1.Volume{
-		{
-			Name: constants.ConfigVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: b.GetRoleGroupInfo().GetFullName(),
-					},
-				},
-			},
-		},
+		// {
+		// 	Name: constants.ConfigVolumeName,
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
+		// 			LocalObjectReference: corev1.LocalObjectReference{
+		// 				Name: b.GetRoleGroupInfo().GetFullName(),
+		// 			},
+		// 		},
+		// 	},
+		// },
 	}
 }
 

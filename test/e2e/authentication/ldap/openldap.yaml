@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openldap-users
+data:
+  openldap-users.ldif: |-
+    # create root directory dc=example,dc=com
+    dn: dc=example,dc=com
+    objectClass: dcObject
+    objectClass: organization
+    dc: example
+    o: Example Organization
+
+    # create Organizational Unit (ou=users)
+    dn: ou=users,dc=example,dc=com
+    objectClass: organizationalUnit
+    ou: users
+
+    # doris cluster service account
+    dn: uid=ldapadmin,ou=users,dc=example,dc=com
+    objectClass: inetOrgPerson
+    objectClass: organizationalPerson
+    objectClass: posixAccount
+    objectClass: shadowAccount
+    cn: ldapadmin
+    sn: admin
+    uid: ldapadmin
+    mail: ldapadmin@example.com
+    userPassword: ldapadmin
+    uidNumber: 1001
+    gidNumber: 1001
+    homeDirectory: /home/ldapadmin
+    loginShell: /bin/bash
+    gecos: LDAP Admin User
+
+    # create user doris, use uid as RDN
+    # the user is to login doris cluster by ldap type,
+    # currently only one user, if you need more users, please add more
+    dn: uid=doris,ou=users,dc=example,dc=com
+    objectClass: inetOrgPerson
+    objectClass: posixAccount
+    objectClass: shadowAccount
+    uid: doris
+    cn: doris
+    sn: Scheduler
+    # note: the mail is required by doris cluster
+    mail: doris@example.com
+    userPassword: doris
+    uidNumber: 1002
+    gidNumber: 1002
+    homeDirectory: /home/doris
+    loginShell: /bin/bash
+    gecos: Doris User
+    shadowLastChange: 0
+    shadowMax: 99999
+    shadowWarning: 7
+
+    # create group admins
+    dn: cn=admins,ou=users,dc=example,dc=com
+    objectClass: groupOfNames
+    cn: admins
+    description: Administrators group
+    member: uid=doris,ou=users,dc=example,dc=com
+
+    # create group developers
+    dn: cn=developers,ou=users,dc=example,dc=com
+    objectClass: groupOfNames
+    cn: developers
+    description: Developers group
+    member: uid=doris,ou=users,dc=example,dc=com
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openldap-deployment
+  labels:
+    app: openldap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openldap
+  template:
+    metadata:
+      labels:
+        app: openldap
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: openldap
+        # resources:
+        #   limits:
+        #     cpu: 300m
+        #     memory: 256Mi
+        image: bitnamilegacy/openldap:2.6.10-debian-12-r4
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 1389
+        env:
+        - name: LDAP_ADMIN_USERNAME
+          value: ($LDAP_ADMIN_USERNAME)
+        - name: LDAP_ADMIN_PASSWORD
+          value: ($LDAP_ADMIN_PASSWORD)
+        # RDN is cn,but doris use uid as RDN, so use custom LDAP_CUSTOM_LDIF_DIR to load ldif file
+        # - name: LDAP_USERS
+        #   value: "user1,user2"
+        # - name: LDAP_PASSWORDS
+        #   value: "password1,password2"
+        - name: LDAP_ROOT
+          value: ($LDAP_ROOT_DC)
+        - name: LDAP_ADMIN_DN
+          value: "cn=admin,dc=example,dc=com"
+        - name: LDAP_CUSTOM_LDIF_DIR
+          value: "/ldifs"
+        volumeMounts:
+        - name: openldap-users
+          mountPath: /ldifs
+      volumes:
+      - name: openldap-users
+        configMap:
+          name: openldap-users
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap
+spec:
+  selector:
+    app: openldap
+  ports:
+  - port: 1389
+    targetPort: 1389

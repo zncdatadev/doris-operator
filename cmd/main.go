@@ -38,6 +38,8 @@ import (
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller"
 	"github.com/zncdatadev/doris-operator/internal/util/version"
+	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -50,7 +52,11 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(dorisv1alpha1.AddToScheme(scheme))
+
 	// +kubebuilder:scaffold:scheme
+	utilruntime.Must(commonsv1alpha1.AddToScheme(scheme))
+	// +kubebuilder:scaffold:scheme
+	utilruntime.Must(authv1alpha1.AddToScheme(scheme))
 }
 
 func main() {
@@ -79,7 +85,7 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		importedVersion := version.NewAppInfo("superset-operator").String()
+		importedVersion := version.NewAppInfo("doris-operator").String()
 		println(importedVersion)
 		os.Exit(0)
 	}
