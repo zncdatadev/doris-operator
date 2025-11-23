@@ -26,6 +26,7 @@ const (
 	DefaultDorisVersion = "2.1.8"
 	PodinfoVolumeName   = "podinfo"
 	DefaultElectNumber  = "3"
+	HttpScheme          = "http"
 )
 
 // Service related constants
@@ -104,6 +105,9 @@ const (
 	BEHttpPortName      = string(ComponentTypeBE) + "-http"
 	BEHeartbeatPortName = string(ComponentTypeBE) + "-heartbeat"
 	BEBrpcPortName      = string(ComponentTypeBE) + "-brpc"
+
+	// Metrics port name
+	MetricsPortName = "metrics"
 )
 
 // Volume related constants

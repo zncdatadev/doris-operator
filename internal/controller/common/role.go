@@ -151,6 +151,12 @@ func RegisterStandardResources(
 	serviceReconcilers := builder.CreateServiceReconcilers(client, roleGroupInfo)
 	reconcilers = append(reconcilers, serviceReconcilers...)
 
+	// Create metrics service
+	metricsSvc := NewRoleGroupMetricsService(client, roleGroupInfo)
+	if metricsSvc != nil {
+		reconcilers = append(reconcilers, metricsSvc)
+	}
+
 	// Create StatefulSet
 	statefulSetReconciler, err := builder.CreateStatefulSetReconciler(
 		ctx,
