@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/operator-go/pkg/builder"
@@ -156,4 +157,84 @@ func NewAccessServiceReconciler(
 		config,
 	)
 	return reconciler.NewGenericResourceReconciler(client, accessSvcBuilder)
+}
+
+// NewRoleGroupMetricsService creates a metrics service reconciler using a simple function approach
+// This creates a headless service for metrics with Prometheus labels and annotations
+func NewRoleGroupMetricsService(
+	client *client.Client,
+	roleGroupInfo *reconciler.RoleGroupInfo,
+) reconciler.Reconciler {
+	roleName := roleGroupInfo.GetRoleName()
+	// Get metrics port
+	metricsPort, err := GetMetricsPort(roleName)
+	if err != nil {
+		// Return empty reconciler on error - should not happen
+		fmt.Printf("GetMetricsPort error for role %v: %v. Skipping metrics service creation.\n", roleName, err)
+		return nil
+	}
+
+	// Create service ports
+	servicePorts := []corev1.ContainerPort{
+		{
+			Name:          constants.MetricsPortName,
+			ContainerPort: metricsPort,
+			Protocol:      corev1.ProtocolTCP,
+		},
+	}
+
+	// Create service name with -metrics suffix
+	serviceName := CreateServiceMetricsName(roleGroupInfo)
+
+	// Prepare labels (copy from roleGroupInfo and add metrics labels)
+	labels := make(map[string]string)
+	for k, v := range roleGroupInfo.GetLabels() {
+		labels[k] = v
+	}
+	labels["prometheus.io/scrape"] = "true"
+
+	// Prepare annotations (copy from roleGroupInfo and add Prometheus annotations)
+	annotations := make(map[string]string)
+	for k, v := range roleGroupInfo.GetAnnotations() {
+		annotations[k] = v
+	}
+	annotations["prometheus.io/scrape"] = "true"
+	annotations["prometheus.io/path"] = "/metrics" // Default metrics path is /metrics
+	annotations["prometheus.io/port"] = strconv.Itoa(int(metricsPort))
+	annotations["prometheus.io/scheme"] = constants.HttpScheme
+
+	// Create base service builder
+	baseBuilder := builder.NewServiceBuilder(
+		client,
+		serviceName,
+		servicePorts,
+		func(sbo *builder.ServiceBuilderOptions) {
+			sbo.Headless = true
+			sbo.ListenerClass = opconstants.ClusterInternal
+			sbo.Labels = labels
+			sbo.MatchingLabels = roleGroupInfo.GetLabels() // Use original labels for matching
+			sbo.Annotations = annotations
+		},
+	)
+
+	return reconciler.NewGenericResourceReconciler(
+		client,
+		baseBuilder,
+	)
+}
+
+// GetMetricsPort returns the metrics port for the given role
+func GetMetricsPort(role string) (int32, error) {
+	switch role {
+	case "fe":
+		return constants.FEHttpPort, nil
+	case "be":
+		return constants.BEHttpPort, nil
+	default:
+		return 0, fmt.Errorf("unknown role to get metrics port: %s", role)
+	}
+}
+
+func CreateServiceMetricsName(roleGroupInfo *reconciler.RoleGroupInfo) string {
+	return roleGroupInfo.GetFullName() + "-metrics"
 }
