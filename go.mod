@@ -1,6 +1,6 @@
 module github.com/zncdatadev/doris-operator
 
-go 1.24.1
+go 1.25.5
 
 require (
 	github.com/onsi/ginkgo/v2 v2.22.2
