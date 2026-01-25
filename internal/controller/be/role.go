@@ -93,7 +93,7 @@ func (r *BEReconciler) CreateServiceReconcilers(
 	client *client.Client,
 	roleGroupInfo *reconciler.RoleGroupInfo,
 ) []reconciler.Reconciler {
-	var reconcilers []reconciler.Reconciler
+	reconcilers := make([]reconciler.Reconciler, 0, 2)
 
 	// Create internal service
 	internalSvc := NewBEInternalServiceReconciler(client, roleGroupInfo)

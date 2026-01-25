@@ -1,6 +1,8 @@
 module github.com/zncdatadev/doris-operator
 
-go 1.25.5
+go 1.24.0
+
+toolchain go1.24.12
 
 require (
 	emperror.dev/errors v0.8.1
