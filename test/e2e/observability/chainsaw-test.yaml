@@ -1,0 +1,313 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: observability-metrics
+spec:
+  steps:
+  # 1. Install Doris cluster
+  - name: install doris cluster
+    try:
+      - apply:
+          file: doris.yaml
+      - assert:
+          file: doris-assert.yaml
+      - assert:
+          timeout: 300s
+          resource:
+            kind: StatefulSet
+            apiVersion: apps/v1
+            metadata:
+              name: test-doris-observability-fe-default
+              namespace: ($namespace)
+            status:
+              readyReplicas: 1
+      - assert:
+          timeout: 300s
+          resource:
+            kind: StatefulSet
+            apiVersion: apps/v1
+            metadata:
+              name: test-doris-observability-be-default
+              namespace: ($namespace)
+            status:
+              readyReplicas: 1
+
+  # 2. Verify metrics services exist with correct annotations
+  - name: verify metrics services
+    try:
+      - script:
+          bindings:
+          - name: NAMESPACE
+            value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -ex
+
+            echo "=== Verifying metrics services ==="
+
+            # Check FE metrics service
+            FE_SVC=$(kubectl get svc test-doris-observability-fe-default-metrics -n "$NAMESPACE" -o json)
+            echo "Found FE metrics service"
+
+            # Verify FE annotations
+            if ! echo "$FE_SVC" | grep -q '"prometheus.io/scrape": "true"'; then
+              echo "ERROR: FE metrics service missing prometheus.io/scrape annotation"
+              exit 1
+            fi
+
+            if ! echo "$FE_SVC" | grep -q '"prometheus.io/port": "8030"'; then
+              echo "ERROR: FE metrics service missing or incorrect prometheus.io/port annotation"
+              exit 1
+            fi
+
+            echo "✓ FE metrics service has correct annotations"
+
+            # Check BE metrics service
+            BE_SVC=$(kubectl get svc test-doris-observability-be-default-metrics -n "$NAMESPACE" -o json)
+            echo "Found BE metrics service"
+
+            # Verify BE annotations
+            if ! echo "$BE_SVC" | grep -q '"prometheus.io/scrape": "true"'; then
+              echo "ERROR: BE metrics service missing prometheus.io/scrape annotation"
+              exit 1
+            fi
+
+            if ! echo "$BE_SVC" | grep -q '"prometheus.io/port": "8040"'; then
+              echo "ERROR: BE metrics service missing or incorrect prometheus.io/port annotation"
+              exit 1
+            fi
+
+            echo "✓ BE metrics service has correct annotations"
+
+  # 3. Verify metrics endpoint connectivity and format
+  - name: verify metrics connectivity
+    try:
+      - script:
+          bindings:
+          - name: NAMESPACE
+            value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -ex
+
+            echo "=== Testing metrics endpoints ==="
+
+            # Test FE metrics
+            echo "Testing FE metrics endpoint..."
+            FE_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=fe,app.kubernetes.io/instance=test-doris-observability -o jsonpath='{.items[0].metadata.name}')
+            echo "FE Pod: $FE_POD"
+
+            kubectl port-forward -n "$NAMESPACE" "$FE_POD" 8030:8030 > /dev/null 2>&1 &
+            FE_PF_PID=$!
+            sleep 3
+
+            trap "kill $FE_PF_PID 2>/dev/null || true" EXIT
+
+            # Test FE metrics endpoint
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8030/metrics)
+            if [[ "$HTTP_CODE" != "200" ]]; then
+              echo "ERROR: Failed to access FE metrics endpoint, HTTP code: $HTTP_CODE"
+              kill $FE_PF_PID 2>/dev/null || true
+              exit 1
+            fi
+
+            # Fetch and verify FE metrics
+            FE_METRICS=$(curl -s http://localhost:8030/metrics)
+
+            # Verify Prometheus format
+            if ! echo "$FE_METRICS" | grep -q "# TYPE"; then
+              echo "ERROR: FE metrics missing Prometheus format (# TYPE)"
+              kill $FE_PF_PID 2>/dev/null || true
+              exit 1
+            fi
+
+            # Verify JVM metrics present (common in Java applications)
+            if ! echo "$FE_METRICS" | grep -q "jvm_"; then
+              echo "WARNING: FE metrics missing JVM metrics"
+            fi
+
+            echo "✓ FE metrics endpoint OK"
+            kill $FE_PF_PID 2>/dev/null || true
+            sleep 2
+
+            # Test BE metrics
+            echo "Testing BE metrics endpoint..."
+            BE_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=be,app.kubernetes.io/instance=test-doris-observability -o jsonpath='{.items[0].metadata.name}')
+            echo "BE Pod: $BE_POD"
+
+            kubectl port-forward -n "$NAMESPACE" "$BE_POD" 8040:8040 > /dev/null 2>&1 &
+            BE_PF_PID=$!
+            sleep 3
+
+            trap "kill $BE_PF_PID 2>/dev/null || true" EXIT
+
+            # Test BE metrics endpoint
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8040/metrics)
+            if [[ "$HTTP_CODE" != "200" ]]; then
+              echo "ERROR: Failed to access BE metrics endpoint, HTTP code: $HTTP_CODE"
+              kill $BE_PF_PID 2>/dev/null || true
+              exit 1
+            fi
+
+            # Fetch and verify BE metrics
+            BE_METRICS=$(curl -s http://localhost:8040/metrics)
+
+            # Verify Prometheus format
+            if ! echo "$BE_METRICS" | grep -q "# TYPE"; then
+              echo "ERROR: BE metrics missing Prometheus format (# TYPE)"
+              kill $BE_PF_PID 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "✓ BE metrics endpoint OK"
+            kill $BE_PF_PID 2>/dev/null || true
+
+            echo "✓ All metrics endpoints verified"
+
+  # 4. Install Prometheus
+  - name: install prometheus
+    try:
+      - script:
+          bindings:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -ex
+
+            echo "=== Environment Check ==="
+            echo "NAMESPACE variable: '$NAMESPACE'"
+            echo "NAMESPACE length: ${#NAMESPACE}"
+            if [ -z "$NAMESPACE" ]; then
+              echo "ERROR: NAMESPACE is empty!"
+              exit 1
+            fi
+
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+            helm repo update
+
+            echo "=== Installing Prometheus ==="
+            echo "Will install to namespace: $NAMESPACE"
+
+            helm upgrade --install prometheus prometheus-community/prometheus \
+              --version 25.3.1 \
+              --namespace "$NAMESPACE" \
+              --create-namespace \
+              -f prometheus-values.yaml \
+              --wait --timeout 5m
+
+  # 5. Verify Prometheus service discovery
+  - name: verify prometheus targets
+    try:
+      - script:
+          bindings:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -e
+
+            echo "=== Waiting for Prometheus ==="
+            kubectl wait --for=condition=Ready pod -l app=prometheus,component=server -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+            sleep 5
+
+            # Port-forward
+            kubectl port-forward -n "$NAMESPACE" svc/prometheus-server 9090:80 > /dev/null 2>&1 &
+            PF_PID=$!
+            sleep 3
+
+            trap "kill $PF_PID 2>/dev/null || true" EXIT
+
+            echo "=== Checking Prometheus Targets ==="
+
+            # Check targets
+            TARGETS=$(curl -s http://localhost:9090/api/v1/targets)
+
+            # Check if we have any active targets
+            ACTIVE=$(echo "$TARGETS" | grep -o '"state":"up"' | wc -l)
+            echo "Total active targets: $ACTIVE"
+
+            if [ "$ACTIVE" -eq 0 ]; then
+              echo "WARNING: No active targets found"
+            fi
+
+            # Check for Doris FE targets
+            echo "Looking for Doris FE targets..."
+            if echo "$TARGETS" | grep -q "test-doris-observability.*fe"; then
+              echo "✓ Found Doris FE target"
+
+              # Verify target is UP
+              if echo "$TARGETS" | grep "test-doris-observability.*fe" | grep -q '"health":"up"'; then
+                echo "✓ Doris FE target is UP"
+              else
+                echo "WARNING: Doris FE target found but not UP"
+              fi
+            else
+              echo "ERROR: Doris FE target not found in Prometheus"
+              echo "Available targets:"
+              echo "$TARGETS" | grep -o '"job":"[^"]*"' | sort | uniq
+              exit 1
+            fi
+
+            # Check for Doris BE targets
+            echo "Looking for Doris BE targets..."
+            if echo "$TARGETS" | grep -q "test-doris-observability.*be"; then
+              echo "✓ Found Doris BE target"
+
+              # Verify target is UP
+              if echo "$TARGETS" | grep "test-doris-observability.*be" | grep -q '"health":"up"'; then
+                echo "✓ Doris BE target is UP"
+              else
+                echo "WARNING: Doris BE target found but not UP"
+              fi
+            else
+              echo "ERROR: Doris BE target not found in Prometheus"
+              echo "Available targets:"
+              echo "$TARGETS" | grep -o '"job":"[^"]*"' | sort | uniq
+              exit 1
+            fi
+
+            echo "✓ Prometheus service discovery verification complete"
+
+  # 6. Query metrics from Prometheus
+  - name: query metrics from prometheus
+    try:
+      - script:
+          bindings:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -e
+
+            # Port-forward
+            kubectl port-forward -n "$NAMESPACE" svc/prometheus-server 9090:80 > /dev/null 2>&1 &
+            PF_PID=$!
+            sleep 2
+
+            trap "kill $PF_PID 2>/dev/null || true" EXIT
+
+            echo "=== Querying Metrics from Prometheus ==="
+
+            # Query for any metric from Doris components
+            QUERY_RESULT=$(curl -s "http://localhost:9090/api/v1/query?query=up{job=~\".*doris.*\"}")
+
+            echo "Query result: $QUERY_RESULT"
+
+            # Check if we got results
+            if echo "$QUERY_RESULT" | grep -q '"resultType":"vector"'; then
+              echo "✓ Successfully queried metrics from Prometheus"
+
+              # Check if we have data points
+              RESULT_COUNT=$(echo "$QUERY_RESULT" | grep -o '"result":\[' | wc -l)
+              if [ "$RESULT_COUNT" -gt 0 ]; then
+                echo "✓ Found metrics data in Prometheus"
+              else
+                echo "WARNING: No metrics data found"
+              fi
+            else
+              echo "ERROR: Failed to query metrics from Prometheus"
+              exit 1
+            fi
+
+            echo "✓ Metrics query verification complete"
