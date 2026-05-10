@@ -1,12 +1,12 @@
 module github.com/zncdatadev/doris-operator
 
-go 1.25.0
+go 1.25.3
 
 require (
 	emperror.dev/errors v0.8.1
-	github.com/onsi/ginkgo/v2 v2.27.2
-	github.com/onsi/gomega v1.38.2
-	github.com/zncdatadev/operator-go v0.12.3
+	github.com/onsi/ginkgo/v2 v2.27.5
+	github.com/onsi/gomega v1.39.0
+	github.com/zncdatadev/operator-go v0.12.6
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.23.1
