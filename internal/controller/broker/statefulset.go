@@ -123,7 +123,7 @@ func (b *BrokerStatefulSetBuilder) GetAdditionalEnvVars() []corev1.EnvVar {
 func getBrokerResourcesSpec() *commonsv1alpha1.ResourcesSpec {
 	cpuMin := resource.MustParse(constants.DefaultCPURequest)
 	cpuMax := resource.MustParse(constants.DefaultCPULimit)
-	memLimit := resource.MustParse(constants.BEMemoryLimit)
+	memLimit := resource.MustParse(constants.BrokerMemoryLimit)
 
 	return &commonsv1alpha1.ResourcesSpec{
 		CPU: &commonsv1alpha1.CPUResource{

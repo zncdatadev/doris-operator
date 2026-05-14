@@ -142,8 +142,9 @@ const (
 	DefaultCPURequest = "2"
 
 	// Memory limits
-	FEMemoryLimit = "1Gi"
-	BEMemoryLimit = "2Gi"
+	FEMemoryLimit     = "1Gi"
+	BEMemoryLimit     = "2Gi"
+	BrokerMemoryLimit = "1Gi"
 
 	// Storage sizes
 	FEStorageSize = "10Gi"

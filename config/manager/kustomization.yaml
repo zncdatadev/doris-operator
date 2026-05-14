@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/zncdatadev/doris-operator
-  newTag: dev
+  newTag: 0.0.0-dev

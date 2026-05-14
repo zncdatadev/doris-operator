@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
@@ -57,7 +58,7 @@ func (b *BrokerConfigMapBuilder) BuildConfig(_ context.Context) (map[string]stri
 	// Default Broker configuration
 	brokerConfig := []string{
 		"sys_log_level = INFO",
-		"broker_ipc_port = 8000",
+		fmt.Sprintf("broker_ipc_port = %d", constants.BrokerIpcPort),
 		"client_expire_seconds = 3600",
 		"enable_fqdn_mode = true",
 	}
