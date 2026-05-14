@@ -73,7 +73,7 @@ const (
 	// Container paths
 	FEEntrypoint     = BaseDorisPath + "/" + string(ComponentTypeFE) + "_entrypoint.sh"
 	BEEntrypoint     = BaseDorisPath + "/" + string(ComponentTypeBE) + "_entrypoint.sh"
-	BrokerEntrypoint = BaseDorisPath + "/broker/apache_hdfs_broker.sh"
+	BrokerEntrypoint = BaseDorisPath + "/broker_entrypoint.sh"
 	FEMetadataPath   = BaseDorisPath + "/" + string(ComponentTypeFE) + "/doris-meta"
 	BEStoragePath    = BaseDorisPath + "/" + string(ComponentTypeBE) + "/storage"
 
