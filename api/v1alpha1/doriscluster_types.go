@@ -35,8 +35,42 @@ type DorisCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DorisClusterSpec `json:"spec,omitempty"`
-	Status status.Status    `json:"status,omitempty"`
+	Spec   DorisClusterSpec   `json:"spec,omitempty"`
+	Status DorisClusterStatus `json:"status,omitempty"`
+}
+
+// DorisClusterStatus defines the observed state of DorisCluster
+type DorisClusterStatus struct {
+	status.Status `json:",inline"`
+
+	// +kubebuilder:validation:Optional
+	FrontEndNodes []NodeStatus `json:"frontEndNodes,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	BackEndNodes []NodeStatus `json:"backEndNodes,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	BrokerNodes []NodeStatus `json:"brokerNodes,omitempty"`
+}
+
+// NodeStatus represents the status of a Doris cluster node
+type NodeStatus struct {
+	// +kubebuilder:validation:Optional
+	Name string `json:"name,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Host string `json:"host,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Role is the node role (follower/observer for FE, empty for BE/Broker)
+	Role string `json:"role,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Alive bool `json:"alive,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Phase is the node lifecycle phase: Registered / Decommissioning / Decommissioned / ForceDropped
+	Phase string `json:"phase,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -89,6 +123,26 @@ type ClusterConfigSpec struct {
 
 	// +kubebuilder:validation:Optional
 	Authentication []AuthenticationSpec `json:"authentication,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	ScaleDownPolicy *ScaleDownPolicySpec `json:"scaleDownPolicy,omitempty"`
+}
+
+// ScaleDownPolicySpec defines the scale-down policy for Doris cluster components.
+type ScaleDownPolicySpec struct {
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=decommission;force-drop
+	// +kubebuilder:default=decommission
+	BackEndStrategy string `json:"backEndStrategy,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="2h"
+	DecommissionTimeout *metav1.Duration `json:"decommissionTimeout,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=drop-observer
+	// +kubebuilder:default=drop-observer
+	FrontEndStrategy string `json:"frontEndStrategy,omitempty"`
 }
 
 type RoleSpec struct {

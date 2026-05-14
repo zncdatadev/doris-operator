@@ -18,11 +18,17 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 
+	"github.com/zncdatadev/doris-operator/internal/controller/constants"
+	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
+	"github.com/zncdatadev/doris-operator/internal/controller/scale"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -56,10 +62,11 @@ type DorisClusterReconciler struct {
 
 var logger = ctrl.Log.WithName("doriscluster-controller")
 
+// defaultDorisUser is the default MySQL user for Doris FE
+const defaultDorisUser = "root"
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
 func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger.V(1).Info("Reconciling DorisCluster")
 
@@ -112,9 +119,109 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return result, nil
 	}
 
+	// Phase 2: Scale management (after resources are ready)
+	scaleResult, err := r.reconcileScale(ctx, instance)
+	if err != nil {
+		logger.Error(err, "Scale reconciliation failed", "cluster", instance.Name)
+		// Don't block resource reconciliation on scale errors; set degraded state
+		_ = r.updateStatus(ctx, instance, scaleResult)
+		return ctrl.Result{}, nil
+	}
+
+	// Update CR status with node information
+	if err := r.updateStatus(ctx, instance, scaleResult); err != nil {
+		logger.Error(err, "Failed to update cluster status", "cluster", instance.Name)
+		return ctrl.Result{}, err
+	}
+
+	if scaleResult != nil && scaleResult.NeedRequeue {
+		logger.Info("Scale operation in progress, requeuing", "cluster", instance.Name, "after", scaleResult.RequeueAfter)
+		return ctrl.Result{RequeueAfter: scaleResult.RequeueAfter}, nil
+	}
+
 	logger.V(1).Info("Reconcile finished.", "cluster", instance.Name, "namespace", instance.Namespace)
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileScale performs scale reconciliation by connecting to Doris FE
+// and checking if any scale-down operations are needed.
+func (r *DorisClusterReconciler) reconcileScale(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (*scale.ScaleResult, error) {
+	// Build FE service DNS name for MySQL connection
+	clusterDomain := "cluster.local"
+	if instance.Spec.ClusterConfig != nil && instance.Spec.ClusterConfig.ClusterDomain != "" {
+		clusterDomain = instance.Spec.ClusterConfig.ClusterDomain
+	}
+	feHost := fmt.Sprintf("%s-fe-internal.%s.svc.%s", instance.Name, instance.Namespace, clusterDomain)
+
+	// Connect to Doris FE
+	dorisClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, defaultDorisUser, "")
+	if err != nil {
+		logger.Info("Failed to connect to Doris FE for scale management",
+			"host", feHost, "error", err)
+		// FE not ready yet; this is not an error, just skip scale reconciliation
+		return nil, nil
+	}
+	defer func() { _ = dorisClient.Close() }()
+
+	scaleMgr := scale.NewScaleManager(dorisClient)
+	defer scaleMgr.Close()
+
+	// Fetch current StatefulSets
+	stsMap, err := r.fetchStatefulSets(ctx, instance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch StatefulSets: %w", err)
+	}
+
+	return scaleMgr.ReconcileScale(ctx, &instance.Spec, stsMap)
+}
+
+// fetchStatefulSets retrieves the FE and BE StatefulSets for the cluster
+func (r *DorisClusterReconciler) fetchStatefulSets(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (map[constants.ComponentType]*appsv1.StatefulSet, error) {
+	stsMap := make(map[constants.ComponentType]*appsv1.StatefulSet)
+
+	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE} {
+		stsName := fmt.Sprintf("%s-%s-default", instance.Name, ct)
+		sts := &appsv1.StatefulSet{}
+		if err := r.Get(ctx, types.NamespacedName{Name: stsName, Namespace: instance.Namespace}, sts); err != nil {
+			if ctrlclient.IgnoreNotFound(err) == nil {
+				logger.V(1).Info("StatefulSet not found", "name", stsName)
+				continue
+			}
+			return nil, err
+		}
+		stsMap[ct] = sts
+	}
+
+	return stsMap, nil
+}
+
+// updateStatus patches the DorisCluster status with node information
+func (r *DorisClusterReconciler) updateStatus(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+	result *scale.ScaleResult,
+) error {
+	if result == nil {
+		return nil
+	}
+
+	// Fetch latest instance to avoid conflicts
+	latest := &dorisv1alpha1.DorisCluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err != nil {
+		return err
+	}
+
+	patch := ctrlclient.MergeFrom(latest.DeepCopy())
+	scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses)
+
+	return r.Status().Patch(ctx, latest, patch)
 }
 
 // SetupWithManager sets up the controller with the Manager.

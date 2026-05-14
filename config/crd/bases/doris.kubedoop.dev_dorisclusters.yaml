@@ -724,6 +724,25 @@ spec:
                   ingressHost:
                     default: example.com
                     type: string
+                  scaleDownPolicy:
+                    description: ScaleDownPolicySpec defines the scale-down policy
+                      for Doris cluster components.
+                    properties:
+                      backEndStrategy:
+                        default: decommission
+                        enum:
+                        - decommission
+                        - force-drop
+                        type: string
+                      decommissionTimeout:
+                        default: 2h
+                        type: string
+                      frontEndStrategy:
+                        default: drop-observer
+                        enum:
+                        - drop-observer
+                        type: string
+                    type: object
                   vectorAggregatorConfigMapName:
                     type: string
                 type: object
@@ -1097,8 +1116,50 @@ spec:
             - frontEnd
             type: object
           status:
-            description: Status defines the common status
+            description: DorisClusterStatus defines the observed state of DorisCluster
             properties:
+              backEndNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
+                  type: object
+                type: array
+              brokerNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
+                  type: object
+                type: array
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -1153,6 +1214,27 @@ spec:
                   - reason
                   - status
                   - type
+                  type: object
+                type: array
+              frontEndNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
                   type: object
                 type: array
               generation:
