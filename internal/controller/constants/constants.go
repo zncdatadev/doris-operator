@@ -5,8 +5,9 @@ type ComponentType string
 
 const (
 	// Component type enum values
-	ComponentTypeFE ComponentType = "fe"
-	ComponentTypeBE ComponentType = "be"
+	ComponentTypeFE     ComponentType = "fe"
+	ComponentTypeBE     ComponentType = "be"
+	ComponentTypeBroker ComponentType = "broker"
 )
 
 // config file names
@@ -14,6 +15,7 @@ const (
 	// Configuration file names
 	FEConfigFilename       = "fe.conf"
 	BEConfigFilename       = "be.conf"
+	BrokerConfigFilename   = "apache_hdfs_broker.conf"
 	FELog4j2ConfigFilename = "log4j2.properties"
 	LDAPConfigFilename     = "ldap.conf"
 )
@@ -44,20 +46,23 @@ const (
 	DefaultInitImageTag = "latest"
 
 	// Default image references
-	DefaultFEImage   = DorisRepository + ":" + string(ComponentTypeFE) + "-" + DefaultDorisVersion
-	DefaultBEImage   = DorisRepository + ":" + string(ComponentTypeBE) + "-" + DefaultDorisVersion
-	DefaultInitImage = InitImageRepository + ":" + DefaultInitImageTag
+	DefaultFEImage     = DorisRepository + ":" + string(ComponentTypeFE) + "-" + DefaultDorisVersion
+	DefaultBEImage     = DorisRepository + ":" + string(ComponentTypeBE) + "-" + DefaultDorisVersion
+	DefaultBrokerImage = DorisRepository + ":" + string(ComponentTypeBroker) + "-" + DefaultDorisVersion
+	DefaultInitImage   = InitImageRepository + ":" + DefaultInitImageTag
 
 	// Image format templates
-	FEImageFormat = "%s:" + string(ComponentTypeFE) + "-%s"
-	BEImageFormat = "%s:" + string(ComponentTypeBE) + "-%s"
+	FEImageFormat     = "%s:" + string(ComponentTypeFE) + "-%s"
+	BEImageFormat     = "%s:" + string(ComponentTypeBE) + "-%s"
+	BrokerImageFormat = "%s:" + string(ComponentTypeBroker) + "-%s"
 )
 
 // Container names
 const (
-	FEContainerName   = string(ComponentTypeFE)
-	BEContainerName   = string(ComponentTypeBE)
-	InitContainerName = "default-init"
+	FEContainerName     = string(ComponentTypeFE)
+	BEContainerName     = string(ComponentTypeBE)
+	BrokerContainerName = string(ComponentTypeBroker)
+	InitContainerName   = "default-init"
 )
 
 // Path related constants
@@ -66,10 +71,11 @@ const (
 	BaseDorisPath = "/opt/apache-doris"
 
 	// Container paths
-	FEEntrypoint   = BaseDorisPath + "/" + string(ComponentTypeFE) + "_entrypoint.sh"
-	BEEntrypoint   = BaseDorisPath + "/" + string(ComponentTypeBE) + "_entrypoint.sh"
-	FEMetadataPath = BaseDorisPath + "/" + string(ComponentTypeFE) + "/doris-meta"
-	BEStoragePath  = BaseDorisPath + "/" + string(ComponentTypeBE) + "/storage"
+	FEEntrypoint     = BaseDorisPath + "/" + string(ComponentTypeFE) + "_entrypoint.sh"
+	BEEntrypoint     = BaseDorisPath + "/" + string(ComponentTypeBE) + "_entrypoint.sh"
+	BrokerEntrypoint = BaseDorisPath + "/broker/apache_hdfs_broker.sh"
+	FEMetadataPath   = BaseDorisPath + "/" + string(ComponentTypeFE) + "/doris-meta"
+	BEStoragePath    = BaseDorisPath + "/" + string(ComponentTypeBE) + "/storage"
 
 	// Config paths
 	DefaultConfigMapPath = "/etc/doris/conf"
@@ -90,6 +96,9 @@ const (
 	BEHttpPort      = 8040
 	BEHeartbeatPort = 9050
 	BEBrpcPort      = 8060
+
+	// Broker ports
+	BrokerIpcPort = 8000
 )
 
 // Port names
@@ -105,6 +114,9 @@ const (
 	BEHttpPortName      = string(ComponentTypeBE) + "-http"
 	BEHeartbeatPortName = string(ComponentTypeBE) + "-heartbeat"
 	BEBrpcPortName      = string(ComponentTypeBE) + "-brpc"
+
+	// Broker port names
+	BrokerIpcPortName = string(ComponentTypeBroker) + "-ipc"
 
 	// Metrics port name
 	MetricsPortName = "metrics"

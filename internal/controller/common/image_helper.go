@@ -12,8 +12,9 @@ import (
 func GetComponentImage(imageSpec *dorisv1alpha1.ImageSpec, componentType constants.ComponentType) string {
 	// Default component images
 	defaultImages := map[constants.ComponentType]string{
-		constants.ComponentTypeFE: constants.DefaultFEImage,
-		constants.ComponentTypeBE: constants.DefaultBEImage,
+		constants.ComponentTypeFE:     constants.DefaultFEImage,
+		constants.ComponentTypeBE:     constants.DefaultBEImage,
+		constants.ComponentTypeBroker: constants.DefaultBrokerImage,
 	}
 
 	// Return default image if imageSpec is nil
@@ -43,6 +44,8 @@ func GetComponentImage(imageSpec *dorisv1alpha1.ImageSpec, componentType constan
 		return fmt.Sprintf(constants.FEImageFormat, repo, version)
 	case constants.ComponentTypeBE:
 		return fmt.Sprintf(constants.BEImageFormat, repo, version)
+	case constants.ComponentTypeBroker:
+		return fmt.Sprintf(constants.BrokerImageFormat, repo, version)
 	default:
 		return defaultImages[componentType]
 	}

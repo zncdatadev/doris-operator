@@ -64,6 +64,9 @@ type DorisClusterSpec struct {
 
 	// +kubebuilder:validation:Required
 	BackEnd *RoleSpec `json:"backEnd,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Broker *RoleSpec `json:"broker,omitempty"`
 }
 
 type ClusterConfigSpec struct {

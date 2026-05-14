@@ -14,3 +14,7 @@ spec:
     roleGroups:
       default:
         replicas: 1
+  broker:
+    roleGroups:
+      default:
+        replicas: 2

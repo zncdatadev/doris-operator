@@ -45,3 +45,4 @@ cover.out
 .vscode
 
 docker-digests.json
+.worktree/
