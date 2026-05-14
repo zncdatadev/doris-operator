@@ -5,6 +5,7 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/be"
+	"github.com/zncdatadev/doris-operator/internal/controller/broker"
 	"github.com/zncdatadev/doris-operator/internal/controller/common"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/doris-operator/internal/controller/fe"
@@ -126,6 +127,32 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		}
 		r.AddResource(beReconciler)
 		clusterLogger.Info("Registered BE role")
+	}
+
+	// Broker role
+	if r.Spec.Broker != nil {
+		brokerRoleInfo := reconciler.RoleInfo{
+			ClusterInfo: r.ClusterInfo,
+			RoleName:    "broker",
+		}
+
+		// Create Broker reconciler with base image
+		brokerImage := r.GetImage(constants.ComponentTypeBroker)
+		brokerReconciler := broker.NewBrokerReconciler(
+			r.Client,
+			brokerRoleInfo,
+			r.Spec.Broker,
+			brokerImage,
+			&dorisv1alpha1.DorisCluster{
+				Spec: *r.Spec,
+			},
+		)
+
+		if err := brokerReconciler.RegisterResources(ctx); err != nil {
+			return err
+		}
+		r.AddResource(brokerReconciler)
+		clusterLogger.Info("Registered Broker role")
 	}
 	return nil
 }
