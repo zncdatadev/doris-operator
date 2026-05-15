@@ -265,7 +265,7 @@ func (c *DorisClient) ShowBackends(ctx context.Context) ([]BackendInfo, error) {
 
 // ShowBrokers returns all Broker nodes from the cluster
 func (c *DorisClient) ShowBrokers(ctx context.Context) ([]BrokerInfo, error) {
-	rows, err := c.queryRows(ctx, "SHOW BROKERS")
+	rows, err := c.queryRows(ctx, "SHOW BROKER")
 	if err != nil {
 		return nil, fmt.Errorf("failed to show brokers: %w", err)
 	}
