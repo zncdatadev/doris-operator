@@ -80,8 +80,8 @@ func ComputeScaleActions(
 		roleSpec *dorisv1alpha1.RoleSpec
 		strategy string
 	}{
-		{constants.ComponentTypeFE, spec.FrontEnd, getFEStrategy(spec)},
-		{constants.ComponentTypeBE, spec.BackEnd, getBEStrategy(spec)},
+		{constants.ComponentTypeFE, spec.Frontend, getFEStrategy(spec)},
+		{constants.ComponentTypeBE, spec.Backend, getBEStrategy(spec)},
 	}
 
 	for _, comp := range components {
@@ -133,7 +133,7 @@ func getPodsToRemove(podNames []string, currentReplicas, desiredReplicas int32) 
 // getBEStrategy returns the scale-down strategy for BE
 func getBEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 	if spec.ClusterConfig != nil && spec.ClusterConfig.ScaleDownPolicy != nil {
-		strategy := spec.ClusterConfig.ScaleDownPolicy.BackEndStrategy
+		strategy := spec.ClusterConfig.ScaleDownPolicy.BackendStrategy
 		if strategy != "" {
 			return strategy
 		}
@@ -144,7 +144,7 @@ func getBEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 // getFEStrategy returns the scale-down strategy for FE
 func getFEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 	if spec.ClusterConfig != nil && spec.ClusterConfig.ScaleDownPolicy != nil {
-		strategy := spec.ClusterConfig.ScaleDownPolicy.FrontEndStrategy
+		strategy := spec.ClusterConfig.ScaleDownPolicy.FrontendStrategy
 		if strategy != "" {
 			return strategy
 		}

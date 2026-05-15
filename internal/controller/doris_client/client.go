@@ -13,6 +13,7 @@ import (
 )
 
 var clientLogger = ctrl.Log.WithName("doris-client")
+var authLogger = ctrl.Log.WithName("doris-auth")
 
 const (
 	// defaultQueryPort is the default MySQL query port for Doris FE
@@ -23,6 +24,9 @@ const (
 
 	// defaultQueryTimeout is the timeout for executing a query
 	defaultQueryTimeout = 30 * time.Second
+
+	// defaultAdminUser is the default admin username when not specified in Secret
+	defaultAdminUser = "root"
 )
 
 // FrontendInfo represents information about a Doris FE node
@@ -329,6 +333,56 @@ func (c *DorisClient) exec(ctx context.Context, query string) error {
 	return err
 }
 
+// InitializeAdminUser creates an admin user in Doris (if not exists) and grants
+// NODE_PRIV and GRANT_PRIV at the global level.
+// This should be called with the root user credentials.
+func (c *DorisClient) InitializeAdminUser(ctx context.Context, username, password string) error {
+	if username == "" {
+		return fmt.Errorf("admin username must not be empty")
+	}
+
+	// Create user if not exists
+	createUserSQL := fmt.Sprintf(
+		"CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s'",
+		escapeSQLString(username), escapeSQLString(password),
+	)
+	if err := c.exec(ctx, createUserSQL); err != nil {
+		return fmt.Errorf("failed to create admin user %s: %w", username, err)
+	}
+	authLogger.Info("Created admin user", "user", username)
+
+	// Grant NODE_PRIV and GRANT_PRIV at global level (*.*.*)
+	grantSQL := fmt.Sprintf(
+		"GRANT NODE_PRIV, GRANT_PRIV ON *.*.* TO '%s'@'%%'",
+		escapeSQLString(username),
+	)
+	if err := c.exec(ctx, grantSQL); err != nil {
+		return fmt.Errorf("failed to grant privileges to admin user %s: %w", username, err)
+	}
+	authLogger.Info("Granted NODE_PRIV and GRANT_PRIV to admin user", "user", username)
+
+	return nil
+}
+
+// CheckUserExists checks if a Doris user exists by querying the mysql.user table.
+func (c *DorisClient) CheckUserExists(ctx context.Context, username string) (bool, error) {
+	query := fmt.Sprintf(
+		"SELECT COUNT(*) FROM mysql.user WHERE user_name = '%s'",
+		escapeSQLString(username),
+	)
+
+	ctx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
+	defer cancel()
+
+	var count int
+	err := c.db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check user existence for %s: %w", username, err)
+	}
+
+	return count > 0, nil
+}
+
 // IsDecommissionComplete checks if a BE has finished decommissioning
 func IsDecommissionComplete(be BackendInfo) bool {
 	return be.Decommission && be.TabletNum == 0
@@ -376,4 +430,40 @@ func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo 
 		}
 	}
 	return nil
+}
+
+// escapeSQLString escapes single quotes and backslashes in SQL string values.
+func escapeSQLString(s string) string {
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case 0x27:
+			result = append(result, 0x27, 0x27)
+		case 0x5c:
+			result = append(result, 0x5c, 0x5c)
+		}
+		result = append(result, s[i])
+	}
+	return string(result)
+}
+
+// GetClusterAuthCredentials extracts admin username and password from a Secret's data map.
+// If username key is not present, defaults to "root".
+// If password key is not present, returns empty password.
+func GetClusterAuthCredentials(secretData map[string][]byte) (username, password string) {
+	username = defaultAdminUser
+	password = ""
+
+	if secretData == nil {
+		return username, password
+	}
+
+	if val, ok := secretData["username"]; ok && len(val) > 0 {
+		username = string(val)
+	}
+	if val, ok := secretData["password"]; ok {
+		password = string(val)
+	}
+
+	return username, password
 }

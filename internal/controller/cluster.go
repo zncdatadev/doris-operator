@@ -78,7 +78,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 	// }
 
 	// FE role
-	if r.Spec.FrontEnd != nil {
+	if r.Spec.Frontend != nil {
 		feRoleInfo := reconciler.RoleInfo{
 			ClusterInfo: r.ClusterInfo,
 			RoleName:    "fe",
@@ -89,7 +89,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		feReconciler := fe.NewFEReconciler(
 			r.Client,
 			feRoleInfo,
-			r.Spec.FrontEnd,
+			r.Spec.Frontend,
 			feImage,
 			&dorisv1alpha1.DorisCluster{
 				Spec: *r.Spec,
@@ -104,7 +104,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 	}
 
 	// BE role
-	if r.Spec.BackEnd != nil {
+	if r.Spec.Backend != nil {
 		beRoleInfo := reconciler.RoleInfo{
 			ClusterInfo: r.ClusterInfo,
 			RoleName:    "be",
@@ -115,7 +115,7 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		beReconciler := be.NewBEReconciler(
 			r.Client,
 			beRoleInfo,
-			r.Spec.BackEnd,
+			r.Spec.Backend,
 			beImage,
 			&dorisv1alpha1.DorisCluster{
 				Spec: *r.Spec,

@@ -16,13 +16,13 @@ func UpdateClusterStatus(
 	}
 
 	// Update BE node statuses
-	clusterStatus.BackEndNodes = make([]dorisv1alpha1.NodeStatus, len(beStatuses))
+	clusterStatus.BackendNodes = make([]dorisv1alpha1.NodeStatus, len(beStatuses))
 	for i, be := range beStatuses {
 		phase := ""
 		if be.Decommission {
 			phase = "Decommissioning"
 		}
-		clusterStatus.BackEndNodes[i] = dorisv1alpha1.NodeStatus{
+		clusterStatus.BackendNodes[i] = dorisv1alpha1.NodeStatus{
 			Name:  be.PodName,
 			Host:  be.Host,
 			Alive: be.Alive,
@@ -31,9 +31,9 @@ func UpdateClusterStatus(
 	}
 
 	// Update FE node statuses
-	clusterStatus.FrontEndNodes = make([]dorisv1alpha1.NodeStatus, len(feStatuses))
+	clusterStatus.FrontendNodes = make([]dorisv1alpha1.NodeStatus, len(feStatuses))
 	for i, fe := range feStatuses {
-		clusterStatus.FrontEndNodes[i] = dorisv1alpha1.NodeStatus{
+		clusterStatus.FrontendNodes[i] = dorisv1alpha1.NodeStatus{
 			Name:  fe.PodName,
 			Host:  fe.Host,
 			Role:  fe.Role,

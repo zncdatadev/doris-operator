@@ -26,6 +26,7 @@ import (
 	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
 	"github.com/zncdatadev/doris-operator/internal/controller/scale"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -157,17 +158,79 @@ func (r *DorisClusterReconciler) reconcileScale(
 	}
 	feHost := fmt.Sprintf("%s-fe-internal.%s.svc.%s", instance.Name, instance.Namespace, clusterDomain)
 
-	// Connect to Doris FE
-	dorisClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, defaultDorisUser, "")
+	// Step 1: Connect to Doris FE with root credentials to initialize admin user if needed
+	rootClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, defaultDorisUser, "")
 	if err != nil {
 		logger.Info("Failed to connect to Doris FE for scale management",
 			"host", feHost, "error", err)
 		// FE not ready yet; this is not an error, just skip scale reconciliation
 		return nil, nil
 	}
-	defer func() { _ = dorisClient.Close() }()
+	defer func() { _ = rootClient.Close() }()
 
-	scaleMgr := scale.NewScaleManager(dorisClient)
+	// Step 2: If authSecret is configured and admin user not yet initialized, create it
+	var mgmtUser, mgmtPass string
+	if instance.Spec.AuthSecret != nil && !instance.Status.AuthInitialized {
+		// Read the Secret
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      instance.Spec.AuthSecret.SecretName,
+			Namespace: instance.Namespace,
+		}, secret); err != nil {
+			if ctrlclient.IgnoreNotFound(err) == nil {
+				logger.Info("AuthSecret not found yet, skipping admin user initialization",
+					"secret", instance.Spec.AuthSecret.SecretName)
+				return nil, nil
+			}
+			return nil, fmt.Errorf("failed to get authSecret: %w", err)
+		}
+
+		mgmtUser, mgmtPass = doris_client.GetClusterAuthCredentials(secret.Data)
+
+		// Create admin user in Doris if it doesn't exist yet
+		exists, err := rootClient.CheckUserExists(ctx, mgmtUser)
+		if err != nil {
+			logger.Error(err, "Failed to check if admin user exists", "user", mgmtUser)
+			// Don't block; will retry on next reconciliation
+			return nil, nil
+		}
+
+		if !exists {
+			if err := rootClient.InitializeAdminUser(ctx, mgmtUser, mgmtPass); err != nil {
+				logger.Error(err, "Failed to initialize admin user", "user", mgmtUser)
+				// Don't block; will retry on next reconciliation
+				return nil, nil
+			}
+		}
+
+		// Mark auth initialization as complete in status
+		latest := &dorisv1alpha1.DorisCluster{}
+		if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err == nil {
+			patch := ctrlclient.MergeFrom(latest.DeepCopy())
+			latest.Status.AuthInitialized = true
+			if err := r.Status().Patch(ctx, latest, patch); err != nil {
+				logger.Error(err, "Failed to update authInitialized status")
+			}
+		}
+	}
+
+	// Step 3: Connect with the management credentials for scale operations
+	if mgmtUser == "" {
+		// No authSecret configured, use root credentials
+		mgmtUser = defaultDorisUser
+		mgmtPass = ""
+	}
+
+	mgmtClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, mgmtUser, mgmtPass)
+	if err != nil {
+		logger.Info("Failed to connect to Doris FE with management credentials",
+			"host", feHost, "user", mgmtUser, "error", err)
+		// Credentials may have been changed by user; skip scale reconciliation
+		return nil, nil
+	}
+	defer func() { _ = mgmtClient.Close() }()
+
+	scaleMgr := scale.NewScaleManager(mgmtClient)
 	defer scaleMgr.Close()
 
 	// Fetch current StatefulSets

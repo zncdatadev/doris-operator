@@ -44,10 +44,15 @@ type DorisClusterStatus struct {
 	status.Status `json:",inline"`
 
 	// +kubebuilder:validation:Optional
-	FrontEndNodes []NodeStatus `json:"frontEndNodes,omitempty"`
+	// AuthInitialized indicates whether the admin user specified in authSecret
+	// has been created and granted privileges in the Doris cluster.
+	AuthInitialized bool `json:"authInitialized,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	BackEndNodes []NodeStatus `json:"backEndNodes,omitempty"`
+	FrontendNodes []NodeStatus `json:"frontendNodes,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	BackendNodes []NodeStatus `json:"backendNodes,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	BrokerNodes []NodeStatus `json:"brokerNodes,omitempty"`
@@ -82,6 +87,16 @@ type DorisClusterList struct {
 	Items           []DorisCluster `json:"items"`
 }
 
+// AuthSecretSpec defines the admin credentials for Doris cluster management.
+type AuthSecretSpec struct {
+	// +kubebuilder:validation:Required
+	// Name of the Secret in the same namespace as the DorisCluster.
+	// The Secret should be of type `kubernetes.io/basic-auth` with keys:
+	//   - username: the admin user name (defaults to "root" if not set)
+	//   - password: the admin user password
+	SecretName string `json:"secretName"`
+}
+
 // DorisClusterSpec defines the desired state of DorisCluster
 type DorisClusterSpec struct {
 	// +kubebuilder:validation:Optional
@@ -94,13 +109,22 @@ type DorisClusterSpec struct {
 	ClusterOperationSpec *commonsv1alpha1.ClusterOperationSpec `json:"clusterOperation,omitempty"`
 
 	// +kubebuilder:validation:Required
-	FrontEnd *RoleSpec `json:"frontEnd,omitempty"`
+	Frontend *RoleSpec `json:"frontend,omitempty"`
 
 	// +kubebuilder:validation:Required
-	BackEnd *RoleSpec `json:"backEnd,omitempty"`
+	Backend *RoleSpec `json:"backend,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Broker *RoleSpec `json:"broker,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// AuthSecret references a Secret containing the Doris cluster admin credentials.
+	// The Secret must be of type `kubernetes.io/basic-auth` with keys `username` and `password`.
+	// If configured, the operator will use these credentials to connect to Doris FE for scale management.
+	// If the specified user does not exist in Doris, the operator will create it with NODE_PRIV
+	// and GRANT_PRIV privileges on first cluster initialization.
+	// If not configured, the operator defaults to root with an empty password.
+	AuthSecret *AuthSecretSpec `json:"authSecret,omitempty"`
 }
 
 type ClusterConfigSpec struct {
@@ -133,7 +157,7 @@ type ScaleDownPolicySpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=decommission;force-drop
 	// +kubebuilder:default=decommission
-	BackEndStrategy string `json:"backEndStrategy,omitempty"`
+	BackendStrategy string `json:"backendStrategy,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="2h"
@@ -142,7 +166,7 @@ type ScaleDownPolicySpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=drop-observer
 	// +kubebuilder:default=drop-observer
-	FrontEndStrategy string `json:"frontEndStrategy,omitempty"`
+	FrontendStrategy string `json:"frontendStrategy,omitempty"`
 }
 
 type RoleSpec struct {

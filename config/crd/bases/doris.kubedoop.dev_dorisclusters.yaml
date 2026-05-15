@@ -39,7 +39,26 @@ spec:
           spec:
             description: DorisClusterSpec defines the desired state of DorisCluster
             properties:
-              backEnd:
+              authSecret:
+                description: |-
+                  AuthSecret references a Secret containing the Doris cluster admin credentials.
+                  The Secret must be of type `kubernetes.io/basic-auth` with keys `username` and `password`.
+                  If configured, the operator will use these credentials to connect to Doris FE for scale management.
+                  If the specified user does not exist in Doris, the operator will create it with NODE_PRIV
+                  and GRANT_PRIV privileges on first cluster initialization.
+                  If not configured, the operator defaults to root with an empty password.
+                properties:
+                  secretName:
+                    description: |-
+                      Name of the Secret in the same namespace as the DorisCluster.
+                      The Secret should be of type `kubernetes.io/basic-auth` with keys:
+                        - username: the admin user name (defaults to "root" if not set)
+                        - password: the admin user password
+                    type: string
+                required:
+                - secretName
+                type: object
+              backend:
                 properties:
                   cliOverrides:
                     items:
@@ -728,7 +747,7 @@ spec:
                     description: ScaleDownPolicySpec defines the scale-down policy
                       for Doris cluster components.
                     properties:
-                      backEndStrategy:
+                      backendStrategy:
                         default: decommission
                         enum:
                         - decommission
@@ -737,7 +756,7 @@ spec:
                       decommissionTimeout:
                         default: 2h
                         type: string
-                      frontEndStrategy:
+                      frontendStrategy:
                         default: drop-observer
                         enum:
                         - drop-observer
@@ -756,7 +775,7 @@ spec:
                     default: false
                     type: boolean
                 type: object
-              frontEnd:
+              frontend:
                 properties:
                   cliOverrides:
                     items:
@@ -1112,13 +1131,18 @@ spec:
                     type: string
                 type: object
             required:
-            - backEnd
-            - frontEnd
+            - backend
+            - frontend
             type: object
           status:
             description: DorisClusterStatus defines the observed state of DorisCluster
             properties:
-              backEndNodes:
+              authInitialized:
+                description: |-
+                  AuthInitialized indicates whether the admin user specified in authSecret
+                  has been created and granted privileges in the Doris cluster.
+                type: boolean
+              backendNodes:
                 items:
                   description: NodeStatus represents the status of a Doris cluster
                     node
@@ -1216,7 +1240,7 @@ spec:
                   - type
                   type: object
                 type: array
-              frontEndNodes:
+              frontendNodes:
                 items:
                   description: NodeStatus represents the status of a Doris cluster
                     node
