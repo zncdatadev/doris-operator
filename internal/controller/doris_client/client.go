@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -69,9 +69,17 @@ func NewDorisClient(feHost string, fePort int, user, password string) (*DorisCli
 		fePort = defaultQueryPort
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/", user, password, feHost, fePort)
+	dsn := mysql.NewConfig()
+	dsn.User = user
+	dsn.Passwd = password
+	dsn.Net = "tcp"
+	dsn.Addr = fmt.Sprintf("%s:%d", feHost, fePort)
+	dsn.Timeout = defaultConnectionTimeout
+	dsn.ReadTimeout = defaultQueryTimeout
+	dsn.WriteTimeout = defaultQueryTimeout
 
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("mysql", dsn.FormatDSN())
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to FE %s:%d: %w", feHost, fePort, err)
 	}
@@ -396,55 +404,70 @@ func ResolvePodHost(podName, namespace, clusterDomain string) string {
 	return fmt.Sprintf("%s.%s.svc.%s", podName, namespace, clusterDomain)
 }
 
-// MatchPodToBackend matches a K8s pod name to a Doris BE node
+// dnsLookupTimeout is the timeout for DNS lookups in pod matching
+const dnsLookupTimeout = 5 * time.Second
+
+// resolvePodIPs resolves a pod name to its IP addresses with a bounded timeout.
+func resolvePodIPs(podName string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
+	defer cancel()
+	return net.DefaultResolver.LookupHost(ctx, podName)
+}
+
+// MatchPodToBackend matches a K8s pod name to a Doris BE node.
+// It resolves DNS once and matches against all backends.
 func MatchPodToBackend(podName string, backends []BackendInfo) *BackendInfo {
+	ips, _ := resolvePodIPs(podName) // ignore DNS errors, fall through to string match
 	for i := range backends {
 		be := &backends[i]
 		if strings.Contains(be.Host, podName) || be.Host == podName {
 			return be
 		}
-		if ips, err := net.LookupHost(podName); err == nil {
-			for _, ip := range ips {
-				if be.Host == ip {
-					return be
-				}
+		for _, ip := range ips {
+			if be.Host == ip {
+				return be
 			}
 		}
 	}
 	return nil
 }
 
-// MatchPodToFrontend matches a K8s pod name to a Doris FE node
+// MatchPodToFrontend matches a K8s pod name to a Doris FE node.
+// It resolves DNS once and matches against all frontends.
 func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo {
+	ips, _ := resolvePodIPs(podName) // ignore DNS errors, fall through to string match
 	for i := range frontends {
 		fe := &frontends[i]
 		if strings.Contains(fe.Host, podName) || fe.Host == podName {
 			return fe
 		}
-		if ips, err := net.LookupHost(podName); err == nil {
-			for _, ip := range ips {
-				if fe.Host == ip {
-					return fe
-				}
+		for _, ip := range ips {
+			if fe.Host == ip {
+				return fe
 			}
 		}
 	}
 	return nil
 }
 
-// escapeSQLString escapes single quotes and backslashes in SQL string values.
+// escapeSQLString escapes single quotes and backslashes in SQL string values
+// using MySQL double-escape convention (” for ', \\ for \).
 func escapeSQLString(s string) string {
-	result := make([]byte, 0, len(s))
+	var result strings.Builder
+	result.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
-		case 0x27:
-			result = append(result, 0x27, 0x27)
-		case 0x5c:
-			result = append(result, 0x5c, 0x5c)
+		case 0x27: // single quote
+			result.WriteByte(0x27)
+			result.WriteByte(0x27)
+		case 0x5c: // backslash
+			result.WriteByte(0x5c)
+			result.WriteByte(0x5c)
+		default:
+			result.WriteByte(s[i])
 		}
-		result = append(result, s[i])
 	}
-	return string(result)
+	return result.String()
 }
 
 // GetClusterAuthCredentials extracts admin username and password from a Secret's data map.

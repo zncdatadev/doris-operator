@@ -3,12 +3,12 @@ package scale
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
-	appsv1 "k8s.io/api/apps/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -43,74 +43,72 @@ type ScaleResult struct {
 	BEStatuses []BENodeStatus
 	// FEStatuses contains current FE node statuses
 	FEStatuses []FENodeStatus
+	// BrokerStatuses contains current Broker node statuses
+	BrokerStatuses []BrokerNodeStatus
 }
 
 // ReconcileScale performs scale reconciliation for all components.
 // It checks if scale-down is needed and coordinates safe decommission/drop operations.
+// Node statuses are collected every reconciliation regardless of scale actions.
 func (m *ScaleManager) ReconcileScale(
 	ctx context.Context,
 	spec *dorisv1alpha1.DorisClusterSpec,
-	stsMap map[constants.ComponentType]*appsv1.StatefulSet,
+	replicaStates map[constants.ComponentType]*ReplicaState,
 ) (*ScaleResult, error) {
 	result := &ScaleResult{
 		CompletedRemovals: make(map[constants.ComponentType][]string),
 	}
 
-	// Build replica states from StatefulSets
-	replicaStates := buildReplicaStates(stsMap)
-
-	// Compute scale actions
+	// Compute and execute scale actions
 	actions := ComputeScaleActions(spec, replicaStates)
-	if len(actions) == 0 {
-		scaleManagerLogger.V(1).Info("No scale actions needed")
-		return result, nil
-	}
+	if len(actions) > 0 {
+		for _, action := range actions {
+			scaleManagerLogger.Info("Processing scale action",
+				"component", action.Component,
+				"current", action.CurrentReplicas,
+				"desired", action.DesiredReplicas,
+				"strategy", action.Strategy)
 
-	for _, action := range actions {
-		scaleManagerLogger.Info("Processing scale action",
-			"component", action.Component,
-			"current", action.CurrentReplicas,
-			"desired", action.DesiredReplicas,
-			"strategy", action.Strategy)
+			if action.IsScaleUp() {
+				// Scale-up is handled by operator-go's StatefulSet reconciler
+				continue
+			}
 
-		if action.IsScaleUp() {
-			// Scale-up is handled by operator-go's StatefulSet reconciler
-			// Nothing to do here
-			continue
-		}
+			if action.IsScaleDown() {
+				switch action.Component {
+				case constants.ComponentTypeBE:
+					beResult, err := m.beManager.ScaleDown(ctx, action)
+					if err != nil {
+						return nil, fmt.Errorf("BE scale-down failed: %w", err)
+					}
+					if len(beResult) > 0 {
+						result.CompletedRemovals[constants.ComponentTypeBE] = beResult
+					} else {
+						// Decommission in progress, need to wait
+						result.NeedRequeue = true
+						result.RequeueAfter = 30 * time.Second
+					}
 
-		if action.IsScaleDown() {
-			switch action.Component {
-			case constants.ComponentTypeBE:
-				beResult, err := m.beManager.ScaleDown(ctx, action)
-				if err != nil {
-					return nil, fmt.Errorf("BE scale-down failed: %w", err)
+				case constants.ComponentTypeFE:
+					feResult, err := m.feManager.ScaleDown(ctx, action)
+					if err != nil {
+						return nil, fmt.Errorf("FE scale-down failed: %w", err)
+					}
+					if len(feResult) > 0 {
+						result.CompletedRemovals[constants.ComponentTypeFE] = feResult
+					}
+
+				default:
+					scaleManagerLogger.V(1).Info("No scale-down handler for component",
+						"component", action.Component)
 				}
-				if len(beResult) > 0 {
-					result.CompletedRemovals[constants.ComponentTypeBE] = beResult
-				} else {
-					// Decommission in progress, need to wait
-					result.NeedRequeue = true
-					result.RequeueAfter = 30 * time.Second
-				}
-
-			case constants.ComponentTypeFE:
-				feResult, err := m.feManager.ScaleDown(ctx, action)
-				if err != nil {
-					return nil, fmt.Errorf("FE scale-down failed: %w", err)
-				}
-				if len(feResult) > 0 {
-					result.CompletedRemovals[constants.ComponentTypeFE] = feResult
-				}
-
-			default:
-				scaleManagerLogger.V(1).Info("No scale-down handler for component",
-					"component", action.Component)
 			}
 		}
+	} else {
+		scaleManagerLogger.V(1).Info("No scale actions needed")
 	}
 
-	// Collect node statuses
+	// Collect node statuses for all deployed components
 	if _, ok := replicaStates[constants.ComponentTypeBE]; ok {
 		beStatuses, err := m.beManager.GetBENodeStatuses(ctx, replicaStates[constants.ComponentTypeBE].PodNames)
 		if err != nil {
@@ -129,7 +127,42 @@ func (m *ScaleManager) ReconcileScale(
 		}
 	}
 
+	if _, ok := replicaStates[constants.ComponentTypeBroker]; ok {
+		brokerPods := replicaStates[constants.ComponentTypeBroker].PodNames
+		brokers, err := m.dorisClient.ShowBrokers(ctx)
+		if err != nil {
+			scaleManagerLogger.Error(err, "Failed to get Broker node statuses")
+		} else {
+			result.BrokerStatuses = buildBrokerNodeStatuses(brokerPods, brokers)
+		}
+	}
+
 	return result, nil
+}
+
+// buildBrokerNodeStatuses maps K8s pod names to Doris broker info.
+func buildBrokerNodeStatuses(podNames []string, brokers []doris_client.BrokerInfo) []BrokerNodeStatus {
+	statuses := make([]BrokerNodeStatus, 0, len(podNames))
+	for _, podName := range podNames {
+		s := BrokerNodeStatus{PodName: podName}
+		for _, bi := range brokers {
+			// Match by substring or exact hostname
+			if len(bi.Host) > 0 && (strings.Contains(bi.Host, podName) || bi.Host == podName) {
+				s.Host = bi.Host
+				s.Alive = bi.Alive
+				break
+			}
+		}
+		statuses = append(statuses, s)
+	}
+	return statuses
+}
+
+// BrokerNodeStatus represents the scale-relevant status of a Broker pod
+type BrokerNodeStatus struct {
+	PodName string
+	Host    string
+	Alive   bool
 }
 
 // Close closes the underlying Doris client connection
@@ -137,18 +170,4 @@ func (m *ScaleManager) Close() {
 	if m.dorisClient != nil {
 		_ = m.dorisClient.Close()
 	}
-}
-
-// buildReplicaStates extracts replica states from StatefulSet map
-func buildReplicaStates(stsMap map[constants.ComponentType]*appsv1.StatefulSet) map[constants.ComponentType]*ReplicaState {
-	states := make(map[constants.ComponentType]*ReplicaState)
-	for ct, sts := range stsMap {
-		states[ct] = &ReplicaState{
-			Component:     ct,
-			SpecReplicas:  GetStatefulSetReplicas(sts),
-			ReadyReplicas: sts.Status.ReadyReplicas,
-			PodNames:      GetStatefulSetPodNames(sts, sts.Namespace),
-		}
-	}
-	return states
 }

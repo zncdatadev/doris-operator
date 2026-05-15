@@ -3,7 +3,6 @@ package scale
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -130,14 +129,4 @@ type BENodeStatus struct {
 	Alive        bool
 	Decommission bool
 	TabletNum    int
-}
-
-// ResolveBEHost resolves the Doris host for a BE pod.
-// Doris uses the pod's hostname (short DNS name) by default.
-func ResolveBEHost(podName string) string {
-	idx := strings.LastIndex(podName, "-")
-	if idx > 0 {
-		return podName[idx+1:]
-	}
-	return podName
 }

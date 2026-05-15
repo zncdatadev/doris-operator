@@ -124,7 +124,7 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	scaleResult, err := r.reconcileScale(ctx, instance)
 	if err != nil {
 		logger.Error(err, "Scale reconciliation failed", "cluster", instance.Name)
-		// Don't block resource reconciliation on scale errors; set degraded state
+		// Don't block resource reconciliation on scale errors; log and skip
 		_ = r.updateStatus(ctx, instance, scaleResult)
 		return ctrl.Result{}, nil
 	}
@@ -234,35 +234,46 @@ func (r *DorisClusterReconciler) reconcileScale(
 	defer scaleMgr.Close()
 
 	// Fetch current StatefulSets
-	stsMap, err := r.fetchStatefulSets(ctx, instance)
+	replicaStates, err := r.fetchReplicaStates(ctx, instance)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch StatefulSets: %w", err)
+		return nil, fmt.Errorf("failed to fetch replica states: %w", err)
 	}
 
-	return scaleMgr.ReconcileScale(ctx, &instance.Spec, stsMap)
+	return scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates)
 }
 
-// fetchStatefulSets retrieves the FE and BE StatefulSets for the cluster
-func (r *DorisClusterReconciler) fetchStatefulSets(
+// fetchReplicaStates builds replica states for all cluster components
+// by listing StatefulSets via label selector (supports multiple roleGroups).
+func (r *DorisClusterReconciler) fetchReplicaStates(
 	ctx context.Context,
 	instance *dorisv1alpha1.DorisCluster,
-) (map[constants.ComponentType]*appsv1.StatefulSet, error) {
-	stsMap := make(map[constants.ComponentType]*appsv1.StatefulSet)
+) (map[constants.ComponentType]*scale.ReplicaState, error) {
+	states := make(map[constants.ComponentType]*scale.ReplicaState)
 
-	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE} {
-		stsName := fmt.Sprintf("%s-%s-default", instance.Name, ct)
-		sts := &appsv1.StatefulSet{}
-		if err := r.Get(ctx, types.NamespacedName{Name: stsName, Namespace: instance.Namespace}, sts); err != nil {
-			if ctrlclient.IgnoreNotFound(err) == nil {
-				logger.V(1).Info("StatefulSet not found", "name", stsName)
-				continue
-			}
-			return nil, err
+	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
+		stsList := &appsv1.StatefulSetList{}
+		labelSelector := ctrlclient.MatchingLabels{
+			"app.kubernetes.io/instance":  instance.Name,
+			"app.kubernetes.io/component": string(ct),
 		}
-		stsMap[ct] = sts
+		if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+			return nil, fmt.Errorf("failed to list StatefulSets for %s: %w", ct, err)
+		}
+
+		if len(stsList.Items) == 0 {
+			continue
+		}
+
+		rs := &scale.ReplicaState{Component: ct}
+		for _, sts := range stsList.Items {
+			rs.SpecReplicas += scale.GetStatefulSetReplicas(&sts)
+			rs.ReadyReplicas += sts.Status.ReadyReplicas
+			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts, sts.Namespace)...)
+		}
+		states[ct] = rs
 	}
 
-	return stsMap, nil
+	return states, nil
 }
 
 // updateStatus patches the DorisCluster status with node information
@@ -282,7 +293,7 @@ func (r *DorisClusterReconciler) updateStatus(
 	}
 
 	patch := ctrlclient.MergeFrom(latest.DeepCopy())
-	scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses)
+	scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses, result.BrokerStatuses)
 
 	return r.Status().Patch(ctx, latest, patch)
 }

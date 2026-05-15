@@ -755,6 +755,10 @@ spec:
                         type: string
                       decommissionTimeout:
                         default: 2h
+                        description: |-
+                          DecommissionTimeout is the maximum duration to wait for BE decommission to complete.
+                          After this timeout, the operator will force-drop the node instead of waiting for data migration.
+                          NOTE: This field is reserved for future implementation; currently decommission will wait indefinitely.
                         type: string
                       frontendStrategy:
                         default: drop-observer

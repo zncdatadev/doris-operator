@@ -91,9 +91,6 @@ func ComputeScaleActions(
 		}
 
 		desired := GetEffectiveReplicas(comp.roleSpec)
-		if desired == 0 {
-			continue
-		}
 
 		action := ScaleAction{
 			Component:       comp.ct,

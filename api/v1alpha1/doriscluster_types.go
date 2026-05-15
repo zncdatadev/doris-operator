@@ -161,6 +161,9 @@ type ScaleDownPolicySpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="2h"
+	// DecommissionTimeout is the maximum duration to wait for BE decommission to complete.
+	// After this timeout, the operator will force-drop the node instead of waiting for data migration.
+	// NOTE: This field is reserved for future implementation; currently decommission will wait indefinitely.
 	DecommissionTimeout *metav1.Duration `json:"decommissionTimeout,omitempty"`
 
 	// +kubebuilder:validation:Optional
