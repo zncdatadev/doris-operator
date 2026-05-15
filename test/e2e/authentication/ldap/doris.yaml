@@ -9,14 +9,14 @@ spec:
   clusterConfig:
     authentication:
       - authenticationClass: ldap
-  frontEnd:
+  frontend:
     roleGroups:
       default:
         replicas: 1
         config:
           resources:
             cpu: {}
-  backEnd:
+  backend:
     roleGroups:
       default:
         replicas: 1
