@@ -168,42 +168,42 @@ func (r *DorisClusterReconciler) reconcileScale(
 	}
 	defer func() { _ = rootClient.Close() }()
 
-	// Step 2: If authSecret is configured and admin user not yet initialized, create it
+	// Step 2: Read auth credentials from Secret (if configured)
 	var mgmtUser, mgmtPass string
-	if instance.Spec.AuthSecret != nil && !instance.Status.AuthInitialized {
-		// Read the Secret
+	if instance.Spec.AuthSecret != nil {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{
 			Name:      instance.Spec.AuthSecret.SecretName,
 			Namespace: instance.Namespace,
 		}, secret); err != nil {
 			if ctrlclient.IgnoreNotFound(err) == nil {
-				logger.Info("AuthSecret not found yet, skipping admin user initialization",
+				logger.Info("AuthSecret not found yet, skipping scale reconciliation",
 					"secret", instance.Spec.AuthSecret.SecretName)
 				return nil, nil
 			}
 			return nil, fmt.Errorf("failed to get authSecret: %w", err)
 		}
-
 		mgmtUser, mgmtPass = doris_client.GetClusterAuthCredentials(secret.Data)
+	} else {
+		// No authSecret configured, use root with empty password
+		mgmtUser = defaultDorisUser
+		mgmtPass = ""
+	}
 
-		// Create admin user in Doris if it doesn't exist yet
+	// Step 3: Bootstrap the admin user if not yet initialized
+	if instance.Spec.AuthSecret != nil && !instance.Status.AuthInitialized {
 		exists, err := rootClient.CheckUserExists(ctx, mgmtUser)
 		if err != nil {
 			logger.Error(err, "Failed to check if admin user exists", "user", mgmtUser)
-			// Don't block; will retry on next reconciliation
 			return nil, nil
 		}
-
 		if !exists {
 			if err := rootClient.InitializeAdminUser(ctx, mgmtUser, mgmtPass); err != nil {
 				logger.Error(err, "Failed to initialize admin user", "user", mgmtUser)
-				// Don't block; will retry on next reconciliation
 				return nil, nil
 			}
 		}
-
-		// Mark auth initialization as complete in status
+		// Mark auth initialization as complete
 		latest := &dorisv1alpha1.DorisCluster{}
 		if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err == nil {
 			patch := ctrlclient.MergeFrom(latest.DeepCopy())
@@ -212,13 +212,6 @@ func (r *DorisClusterReconciler) reconcileScale(
 				logger.Error(err, "Failed to update authInitialized status")
 			}
 		}
-	}
-
-	// Step 3: Connect with the management credentials for scale operations
-	if mgmtUser == "" {
-		// No authSecret configured, use root credentials
-		mgmtUser = defaultDorisUser
-		mgmtPass = ""
 	}
 
 	mgmtClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, mgmtUser, mgmtPass)
@@ -267,6 +260,7 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 		rs := &scale.ReplicaState{Component: ct}
 		for _, sts := range stsList.Items {
 			rs.SpecReplicas += scale.GetStatefulSetReplicas(&sts)
+			rs.CurrentReplicas += sts.Status.Replicas
 			rs.ReadyReplicas += sts.Status.ReadyReplicas
 			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts, sts.Namespace)...)
 		}

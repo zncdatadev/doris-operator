@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -404,47 +403,25 @@ func ResolvePodHost(podName, namespace, clusterDomain string) string {
 	return fmt.Sprintf("%s.%s.svc.%s", podName, namespace, clusterDomain)
 }
 
-// dnsLookupTimeout is the timeout for DNS lookups in pod matching
-const dnsLookupTimeout = 5 * time.Second
-
-// resolvePodIPs resolves a pod name to its IP addresses with a bounded timeout.
-func resolvePodIPs(podName string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
-	defer cancel()
-	return net.DefaultResolver.LookupHost(ctx, podName)
-}
-
-// MatchPodToBackend matches a K8s pod name to a Doris BE node.
-// It resolves DNS once and matches against all backends.
+// MatchPodToBackend matches a K8s pod name to a Doris BE node by hostname substring match.
+// Doris registers nodes using their pod hostname, so string matching is sufficient.
 func MatchPodToBackend(podName string, backends []BackendInfo) *BackendInfo {
-	ips, _ := resolvePodIPs(podName) // ignore DNS errors, fall through to string match
 	for i := range backends {
 		be := &backends[i]
 		if strings.Contains(be.Host, podName) || be.Host == podName {
 			return be
 		}
-		for _, ip := range ips {
-			if be.Host == ip {
-				return be
-			}
-		}
 	}
 	return nil
 }
 
-// MatchPodToFrontend matches a K8s pod name to a Doris FE node.
-// It resolves DNS once and matches against all frontends.
+// MatchPodToFrontend matches a K8s pod name to a Doris FE node by hostname substring match.
+// Doris registers nodes using their pod hostname, so string matching is sufficient.
 func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo {
-	ips, _ := resolvePodIPs(podName) // ignore DNS errors, fall through to string match
 	for i := range frontends {
 		fe := &frontends[i]
 		if strings.Contains(fe.Host, podName) || fe.Host == podName {
 			return fe
-		}
-		for _, ip := range ips {
-			if fe.Host == ip {
-				return fe
-			}
 		}
 	}
 	return nil

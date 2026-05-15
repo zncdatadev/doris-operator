@@ -42,8 +42,10 @@ func (a *ScaleAction) IsScaleUp() bool {
 type ReplicaState struct {
 	// Component type
 	Component constants.ComponentType
-	// Current replicas from StatefulSet spec
+	// DesiredReplicas from StatefulSet spec (what the STS is targeting)
 	SpecReplicas int32
+	// CurrentReplicas from StatefulSet status (actual number of pods currently running)
+	CurrentReplicas int32
 	// Ready replicas from StatefulSet status
 	ReadyReplicas int32
 	// Pod names currently running (sorted by ordinal)
@@ -69,6 +71,11 @@ func GetEffectiveReplicas(roleSpec *dorisv1alpha1.RoleSpec) int32 {
 
 // ComputeScaleActions compares desired replicas against current StatefulSet state
 // and returns scale actions for each component.
+//
+// Limitation: When multiple roleGroups exist for a component, scale-down pod selection
+// may not correctly target the roleGroup being scaled. Scale-down is only safely supported
+// for single-roleGroup deployments. Multi-roleGroup scale support requires per-StatefulSet
+// action computation which is not yet implemented.
 func ComputeScaleActions(
 	spec *dorisv1alpha1.DorisClusterSpec,
 	replicaStates map[constants.ComponentType]*ReplicaState,
@@ -94,14 +101,14 @@ func ComputeScaleActions(
 
 		action := ScaleAction{
 			Component:       comp.ct,
-			CurrentReplicas: state.SpecReplicas,
+			CurrentReplicas: state.CurrentReplicas,
 			DesiredReplicas: desired,
 			Strategy:        comp.strategy,
 		}
 
 		if action.IsScaleDown() {
 			// Determine which pods to remove (highest ordinals first)
-			action.PodsToRemove = getPodsToRemove(state.PodNames, state.SpecReplicas, desired)
+			action.PodsToRemove = getPodsToRemove(state.PodNames, state.CurrentReplicas, desired)
 		}
 
 		actions = append(actions, action)
@@ -166,9 +173,9 @@ func GetStatefulSetReplicas(sts *appsv1.StatefulSet) int32 {
 	return 1 // StatefulSet default
 }
 
-// GetStatefulSetPodNames returns sorted pod names from a StatefulSet
+// GetStatefulSetPodNames returns sorted pod names from a StatefulSet based on actual running replicas.
 func GetStatefulSetPodNames(sts *appsv1.StatefulSet, namespace string) []string {
-	replicas := GetStatefulSetReplicas(sts)
+	replicas := sts.Status.Replicas // Use actual running count, not spec
 	names := make([]string, 0, int(replicas))
 	for i := int32(0); i < replicas; i++ {
 		names = append(names, fmt.Sprintf("%s-%d", sts.Name, i))
