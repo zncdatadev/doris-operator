@@ -25,6 +25,21 @@ import (
 
 func intPtr(v int32) *int32 { return &v }
 
+const (
+	testRoleGroupDefault = "default"
+	testFEPod0           = "fe-0"
+	testFEPod1           = "fe-1"
+	testFEPod2           = "fe-2"
+	testBEPod0           = "be-0"
+	testBEPod1           = "be-1"
+	testBEPod2           = "be-2"
+	testPod0             = "pod-0"
+	testPod1             = "pod-1"
+	testPod2             = "pod-2"
+	testPod3             = "pod-3"
+	testBrokerPod0       = "broker-0"
+)
+
 func TestGetEffectiveReplicas(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -40,7 +55,7 @@ func TestGetEffectiveReplicas(t *testing.T) {
 			name: "single role group with replicas",
 			roleSpec: &dorisv1alpha1.RoleSpec{
 				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					"default": {Replicas: intPtr(3)},
+					testRoleGroupDefault: {Replicas: intPtr(3)},
 				},
 			},
 			want: 3,
@@ -49,8 +64,8 @@ func TestGetEffectiveReplicas(t *testing.T) {
 			name: "multiple role groups",
 			roleSpec: &dorisv1alpha1.RoleSpec{
 				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					"default": {Replicas: intPtr(2)},
-					"extra":   {Replicas: intPtr(1)},
+					testRoleGroupDefault: {Replicas: intPtr(2)},
+					"extra":              {Replicas: intPtr(1)},
 				},
 			},
 			want: 3,
@@ -59,7 +74,7 @@ func TestGetEffectiveReplicas(t *testing.T) {
 			name: "nil replicas defaults to 0",
 			roleSpec: &dorisv1alpha1.RoleSpec{
 				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					"default": {},
+					testRoleGroupDefault: {},
 				},
 			},
 			want: 0,
@@ -95,12 +110,12 @@ func TestComputeScaleActions(t *testing.T) {
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				Frontend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(3)},
+						testRoleGroupDefault: {Replicas: intPtr(3)},
 					},
 				},
 				Backend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(3)},
+						testRoleGroupDefault: {Replicas: intPtr(3)},
 					},
 				},
 			},
@@ -110,14 +125,14 @@ func TestComputeScaleActions(t *testing.T) {
 					SpecReplicas:    3,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"fe-0", "fe-1", "fe-2"},
+					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
 				},
 				constants.ComponentTypeBE: {
 					Component:       constants.ComponentTypeBE,
 					SpecReplicas:    3,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"be-0", "be-1", "be-2"},
+					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
 				},
 			},
 			wantLen:   2, // both components present => 2 actions (no-op but included)
@@ -129,12 +144,12 @@ func TestComputeScaleActions(t *testing.T) {
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				Frontend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(5)},
+						testRoleGroupDefault: {Replicas: intPtr(5)},
 					},
 				},
 				Backend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(4)},
+						testRoleGroupDefault: {Replicas: intPtr(4)},
 					},
 				},
 			},
@@ -144,14 +159,14 @@ func TestComputeScaleActions(t *testing.T) {
 					SpecReplicas:    5,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"fe-0", "fe-1", "fe-2"},
+					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
 				},
 				constants.ComponentTypeBE: {
 					Component:       constants.ComponentTypeBE,
 					SpecReplicas:    4,
 					CurrentReplicas: 2,
 					ReadyReplicas:   2,
-					PodNames:        []string{"be-0", "be-1"},
+					PodNames:        []string{testBEPod0, testBEPod1},
 				},
 			},
 			wantLen:   2,
@@ -163,12 +178,12 @@ func TestComputeScaleActions(t *testing.T) {
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				Frontend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(3)},
+						testRoleGroupDefault: {Replicas: intPtr(3)},
 					},
 				},
 				Backend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(1)},
+						testRoleGroupDefault: {Replicas: intPtr(1)},
 					},
 				},
 			},
@@ -178,14 +193,14 @@ func TestComputeScaleActions(t *testing.T) {
 					SpecReplicas:    3,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"fe-0", "fe-1", "fe-2"},
+					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
 				},
 				constants.ComponentTypeBE: {
 					Component:       constants.ComponentTypeBE,
 					SpecReplicas:    1,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"be-0", "be-1", "be-2"},
+					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
 				},
 			},
 			wantLen:   2, // FE (no-op) + BE (scale-down)
@@ -197,12 +212,12 @@ func TestComputeScaleActions(t *testing.T) {
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				Frontend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(0)},
+						testRoleGroupDefault: {Replicas: intPtr(0)},
 					},
 				},
 				Backend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(3)},
+						testRoleGroupDefault: {Replicas: intPtr(3)},
 					},
 				},
 			},
@@ -212,14 +227,14 @@ func TestComputeScaleActions(t *testing.T) {
 					SpecReplicas:    0,
 					CurrentReplicas: 1,
 					ReadyReplicas:   1,
-					PodNames:        []string{"fe-0"},
+					PodNames:        []string{testFEPod0},
 				},
 				constants.ComponentTypeBE: {
 					Component:       constants.ComponentTypeBE,
 					SpecReplicas:    3,
 					CurrentReplicas: 3,
 					ReadyReplicas:   3,
-					PodNames:        []string{"be-0", "be-1", "be-2"},
+					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
 				},
 			},
 			wantLen:   2, // FE (no-op) + BE (scale-down)
@@ -231,12 +246,12 @@ func TestComputeScaleActions(t *testing.T) {
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				Frontend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(1)},
+						testRoleGroupDefault: {Replicas: intPtr(1)},
 					},
 				},
 				Backend: &dorisv1alpha1.RoleSpec{
 					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						"default": {Replicas: intPtr(1)},
+						testRoleGroupDefault: {Replicas: intPtr(1)},
 					},
 				},
 			},
@@ -247,7 +262,7 @@ func TestComputeScaleActions(t *testing.T) {
 					SpecReplicas:    1,
 					CurrentReplicas: 1,
 					ReadyReplicas:   1,
-					PodNames:        []string{"fe-0"},
+					PodNames:        []string{testFEPod0},
 				},
 			},
 			wantLen:   1, // FE present in states (no-op), BE skipped (not in states)
@@ -294,31 +309,31 @@ func TestGetPodsToRemove(t *testing.T) {
 	}{
 		{
 			name:          "scale down by 1",
-			podNames:      []string{"pod-0", "pod-1", "pod-2"},
+			podNames:      []string{testPod0, testPod1, testPod2},
 			current:       3,
 			desired:       2,
 			wantRemoveLen: 1,
-			wantRemoved:   []string{"pod-2"},
+			wantRemoved:   []string{testPod2},
 		},
 		{
 			name:          "scale down by 2",
-			podNames:      []string{"pod-0", "pod-1", "pod-2", "pod-3"},
+			podNames:      []string{testPod0, testPod1, testPod2, testPod3},
 			current:       4,
 			desired:       2,
 			wantRemoveLen: 2,
-			wantRemoved:   []string{"pod-2", "pod-3"},
+			wantRemoved:   []string{testPod2, testPod3},
 		},
 		{
 			name:          "scale down to zero",
-			podNames:      []string{"pod-0"},
+			podNames:      []string{testPod0},
 			current:       1,
 			desired:       0,
 			wantRemoveLen: 1,
-			wantRemoved:   []string{"pod-0"},
+			wantRemoved:   []string{testPod0},
 		},
 		{
 			name:          "no scale down",
-			podNames:      []string{"pod-0", "pod-1"},
+			podNames:      []string{testPod0, testPod1},
 			current:       2,
 			desired:       2,
 			wantRemoveLen: 0,
@@ -326,7 +341,7 @@ func TestGetPodsToRemove(t *testing.T) {
 		},
 		{
 			name:          "scale up",
-			podNames:      []string{"pod-0"},
+			podNames:      []string{testPod0},
 			current:       1,
 			desired:       3,
 			wantRemoveLen: 0,
@@ -359,29 +374,29 @@ func TestGetBEStrategy(t *testing.T) {
 		{
 			name: "nil cluster config returns default",
 			spec: &dorisv1alpha1.DorisClusterSpec{},
-			want: "decommission",
+			want: StrategyDecommission,
 		},
 		{
 			name: "explicit decommission",
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				ClusterConfig: &dorisv1alpha1.ClusterConfigSpec{
 					ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{
-						BackendStrategy: "decommission",
+						BackendStrategy: StrategyDecommission,
 					},
 				},
 			},
-			want: "decommission",
+			want: StrategyDecommission,
 		},
 		{
 			name: "explicit force-drop",
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				ClusterConfig: &dorisv1alpha1.ClusterConfigSpec{
 					ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{
-						BackendStrategy: "force-drop",
+						BackendStrategy: StrategyForceDrop,
 					},
 				},
 			},
-			want: "force-drop",
+			want: StrategyForceDrop,
 		},
 		{
 			name: "empty strategy returns default",
@@ -390,7 +405,7 @@ func TestGetBEStrategy(t *testing.T) {
 					ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{},
 				},
 			},
-			want: "decommission",
+			want: StrategyDecommission,
 		},
 	}
 
@@ -413,18 +428,18 @@ func TestGetFEStrategy(t *testing.T) {
 		{
 			name: "nil cluster config returns default",
 			spec: &dorisv1alpha1.DorisClusterSpec{},
-			want: "drop-observer",
+			want: StrategyDropObserver,
 		},
 		{
 			name: "explicit drop-observer",
 			spec: &dorisv1alpha1.DorisClusterSpec{
 				ClusterConfig: &dorisv1alpha1.ClusterConfigSpec{
 					ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{
-						FrontendStrategy: "drop-observer",
+						FrontendStrategy: StrategyDropObserver,
 					},
 				},
 			},
-			want: "drop-observer",
+			want: StrategyDropObserver,
 		},
 		{
 			name: "empty strategy returns default",
@@ -433,7 +448,7 @@ func TestGetFEStrategy(t *testing.T) {
 					ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{},
 				},
 			},
-			want: "drop-observer",
+			want: StrategyDropObserver,
 		},
 	}
 
@@ -469,8 +484,8 @@ func TestUpdateClusterStatus(t *testing.T) {
 		{
 			name: "populates BE nodes",
 			beStatuses: []BENodeStatus{
-				{PodName: "be-0", Host: "be-0", Alive: true, Decommission: false},
-				{PodName: "be-1", Host: "be-1", Alive: true, Decommission: true, TabletNum: 5},
+				{PodName: testBEPod0, Host: testBEPod0, Alive: true, Decommission: false},
+				{PodName: testBEPod1, Host: testBEPod1, Alive: true, Decommission: true, TabletNum: 5},
 			},
 			feStatuses:      nil,
 			brokerStatuses:  nil,
@@ -482,7 +497,7 @@ func TestUpdateClusterStatus(t *testing.T) {
 			name:       "populates FE nodes",
 			beStatuses: nil,
 			feStatuses: []FENodeStatus{
-				{PodName: "fe-0", Host: "fe-0", Role: "FOLLOWER", Alive: true},
+				{PodName: testFEPod0, Host: testFEPod0, Role: "FOLLOWER", Alive: true},
 			},
 			brokerStatuses:  nil,
 			wantBENodes:     0,
@@ -494,7 +509,7 @@ func TestUpdateClusterStatus(t *testing.T) {
 			beStatuses: nil,
 			feStatuses: nil,
 			brokerStatuses: []BrokerNodeStatus{
-				{PodName: "broker-0", Host: "broker-0", Alive: true},
+				{PodName: testBrokerPod0, Host: testBrokerPod0, Alive: true},
 			},
 			wantBENodes:     0,
 			wantFENodes:     0,
@@ -503,13 +518,13 @@ func TestUpdateClusterStatus(t *testing.T) {
 		{
 			name: "populates all",
 			beStatuses: []BENodeStatus{
-				{PodName: "be-0", Host: "be-0", Alive: true},
+				{PodName: testBEPod0, Host: testBEPod0, Alive: true},
 			},
 			feStatuses: []FENodeStatus{
-				{PodName: "fe-0", Host: "fe-0", Role: "MASTER", Alive: true},
+				{PodName: testFEPod0, Host: testFEPod0, Role: "MASTER", Alive: true},
 			},
 			brokerStatuses: []BrokerNodeStatus{
-				{PodName: "broker-0", Host: "broker-0", Alive: true},
+				{PodName: testBrokerPod0, Host: testBrokerPod0, Alive: true},
 			},
 			wantBENodes:     1,
 			wantFENodes:     1,
@@ -518,7 +533,7 @@ func TestUpdateClusterStatus(t *testing.T) {
 		{
 			name: "decommission BE gets Decommissioning phase",
 			beStatuses: []BENodeStatus{
-				{PodName: "be-0", Host: "be-0", Alive: true, Decommission: true},
+				{PodName: testBEPod0, Host: testBEPod0, Alive: true, Decommission: true},
 			},
 			feStatuses:      nil,
 			brokerStatuses:  nil,
@@ -529,7 +544,7 @@ func TestUpdateClusterStatus(t *testing.T) {
 		{
 			name: "nil cluster status does not panic",
 			beStatuses: []BENodeStatus{
-				{PodName: "be-0", Alive: true},
+				{PodName: testBEPod0, Alive: true},
 			},
 			feStatuses:      nil,
 			brokerStatuses:  nil,

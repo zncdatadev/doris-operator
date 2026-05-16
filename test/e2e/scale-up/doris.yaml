@@ -1,0 +1,28 @@
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: doris-operator
+  name: doriscluster-sample
+spec:
+  clusterConfig: {}
+  frontend:
+    roleGroups:
+      default:
+        replicas: 1
+        config:
+          resources:
+            cpu: {}
+  backend:
+    roleGroups:
+      default:
+        replicas: 1
+        config:
+          resources:
+            cpu: {}
+        envOverrides:
+          SKIP_CHECK_ULIMIT: "true"
+  broker:
+    roleGroups:
+      default:
+        replicas: 1

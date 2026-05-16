@@ -83,8 +83,9 @@ func (m *ScaleManager) ReconcileScale(
 					}
 					if len(beResult) > 0 {
 						result.CompletedRemovals[constants.ComponentTypeBE] = beResult
-					} else {
-						// Decommission in progress, need to wait
+					}
+					// Requeue if not all pods are ready for removal
+					if len(beResult) < len(action.PodsToRemove) {
 						result.NeedRequeue = true
 						result.RequeueAfter = 30 * time.Second
 					}

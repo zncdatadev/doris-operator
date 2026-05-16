@@ -18,6 +18,13 @@ package doris_client
 
 import "testing"
 
+const (
+	testBEPodFQDN = "doris-sample-be-default-0"
+	testFEPodFQDN = "doris-sample-fe-default-0"
+	testSecretKey = "password"
+	testUserKey   = "username"
+)
+
 func TestEscapeSQLString(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -31,8 +38,8 @@ func TestEscapeSQLString(t *testing.T) {
 		},
 		{
 			name:  "no special characters",
-			input: "root",
-			want:  "root",
+			input: defaultAdminUser,
+			want:  defaultAdminUser,
 		},
 		{
 			name:  "single quote",
@@ -96,37 +103,37 @@ func TestGetClusterAuthCredentials(t *testing.T) {
 		{
 			name:       "nil secret data",
 			secretData: nil,
-			wantUser:   "root",
+			wantUser:   defaultAdminUser,
 			wantPass:   "",
 		},
 		{
 			name:       "empty secret data",
 			secretData: map[string][]byte{},
-			wantUser:   "root",
+			wantUser:   defaultAdminUser,
 			wantPass:   "",
 		},
 		{
 			name:       "both username and password",
-			secretData: map[string][]byte{"username": []byte("admin"), "password": []byte("secret")},
+			secretData: map[string][]byte{testUserKey: []byte("admin"), "password": []byte("secret")},
 			wantUser:   "admin",
 			wantPass:   "secret",
 		},
 		{
 			name:       "only password",
-			secretData: map[string][]byte{"password": []byte("mypass")},
-			wantUser:   "root",
+			secretData: map[string][]byte{testSecretKey: []byte("mypass")},
+			wantUser:   defaultAdminUser,
 			wantPass:   "mypass",
 		},
 		{
 			name:       "only username without password",
-			secretData: map[string][]byte{"username": []byte("operator")},
+			secretData: map[string][]byte{testUserKey: []byte("operator")},
 			wantUser:   "operator",
 			wantPass:   "",
 		},
 		{
 			name:       "empty username falls back to root",
-			secretData: map[string][]byte{"username": []byte(""), "password": []byte("pass")},
-			wantUser:   "root",
+			secretData: map[string][]byte{testUserKey: []byte(""), "password": []byte("pass")},
+			wantUser:   defaultAdminUser,
 			wantPass:   "pass",
 		},
 	}
@@ -153,9 +160,9 @@ func TestMatchPodToBackend(t *testing.T) {
 	}{
 		{
 			name:    "exact hostname match",
-			podName: "doris-sample-be-default-0",
+			podName: testBEPodFQDN,
 			backends: []BackendInfo{
-				{Host: "doris-sample-be-default-0", Port: 9050},
+				{Host: testBEPodFQDN, Port: 9050},
 			},
 			want: true,
 		},
@@ -163,7 +170,7 @@ func TestMatchPodToBackend(t *testing.T) {
 			name:    "substring match",
 			podName: "be-default-0",
 			backends: []BackendInfo{
-				{Host: "doris-sample-be-default-0", Port: 9050},
+				{Host: testBEPodFQDN, Port: 9050},
 			},
 			want: true,
 		},
@@ -171,7 +178,7 @@ func TestMatchPodToBackend(t *testing.T) {
 			name:    "no match",
 			podName: "other-pod-0",
 			backends: []BackendInfo{
-				{Host: "doris-sample-be-default-0", Port: 9050},
+				{Host: testBEPodFQDN, Port: 9050},
 			},
 			want: false,
 		},
@@ -185,7 +192,7 @@ func TestMatchPodToBackend(t *testing.T) {
 			name:    "matches correct one among multiple",
 			podName: "be-default-1",
 			backends: []BackendInfo{
-				{Host: "doris-sample-be-default-0", Port: 9050},
+				{Host: testBEPodFQDN, Port: 9050},
 				{Host: "doris-sample-be-default-1", Port: 9050},
 				{Host: "doris-sample-be-default-2", Port: 9050},
 			},
@@ -212,9 +219,9 @@ func TestMatchPodToFrontend(t *testing.T) {
 	}{
 		{
 			name:    "exact hostname match",
-			podName: "doris-sample-fe-default-0",
+			podName: testFEPodFQDN,
 			frontends: []FrontendInfo{
-				{Host: "doris-sample-fe-default-0"},
+				{Host: testFEPodFQDN},
 			},
 			want: true,
 		},
@@ -222,7 +229,7 @@ func TestMatchPodToFrontend(t *testing.T) {
 			name:    "substring match",
 			podName: "fe-default-0",
 			frontends: []FrontendInfo{
-				{Host: "doris-sample-fe-default-0"},
+				{Host: testFEPodFQDN},
 			},
 			want: true,
 		},

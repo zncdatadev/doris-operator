@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,10 +153,10 @@ func (c *DorisClient) ShowFrontends(ctx context.Context) ([]FrontendInfo, error)
 			fe.Host = values[idx].String
 		}
 		if idx, ok := colIdx["EDITLOGPORT"]; ok && values[idx].Valid {
-			_, _ = fmt.Sscanf(values[idx].String, "%d", &fe.EditLogPort)
+			fe.EditLogPort = parseInt(values[idx].String)
 		}
 		if idx, ok := colIdx["QUERYPORT"]; ok && values[idx].Valid {
-			_, _ = fmt.Sscanf(values[idx].String, "%d", &fe.QueryPort)
+			fe.QueryPort = parseInt(values[idx].String)
 		}
 		if idx, ok := colIdx["ROLE"]; ok {
 			fe.Role = values[idx].String
@@ -244,7 +245,7 @@ func (c *DorisClient) ShowBackends(ctx context.Context) ([]BackendInfo, error) {
 			be.Host = values[idx].String
 		}
 		if idx, ok := colIdx["HEARTBEATPORT"]; ok && values[idx].Valid {
-			_, _ = fmt.Sscanf(values[idx].String, "%d", &be.Port)
+			be.Port = parseInt(values[idx].String)
 		}
 		if idx, ok := colIdx["ALIVE"]; ok {
 			be.Alive = strings.EqualFold(values[idx].String, "true")
@@ -253,7 +254,7 @@ func (c *DorisClient) ShowBackends(ctx context.Context) ([]BackendInfo, error) {
 			be.Decommission = strings.EqualFold(values[idx].String, "true")
 		}
 		if idx, ok := colIdx["TABLETNUM"]; ok && values[idx].Valid {
-			_, _ = fmt.Sscanf(values[idx].String, "%d", &be.TabletNum)
+			be.TabletNum = parseInt(values[idx].String)
 		}
 
 		backends = append(backends, be)
@@ -301,7 +302,7 @@ func (c *DorisClient) ShowBrokers(ctx context.Context) ([]BrokerInfo, error) {
 			bi.Host = values[idx].String
 		}
 		if idx, ok := colIdx["PORT"]; ok && values[idx].Valid {
-			_, _ = fmt.Sscanf(values[idx].String, "%d", &bi.Port)
+			bi.Port = parseInt(values[idx].String)
 		}
 		if idx, ok := colIdx["ALIVE"]; ok {
 			bi.Alive = strings.EqualFold(values[idx].String, "true")
@@ -374,7 +375,7 @@ func (c *DorisClient) InitializeAdminUser(ctx context.Context, username, passwor
 // CheckUserExists checks if a Doris user exists by querying the mysql.user table.
 func (c *DorisClient) CheckUserExists(ctx context.Context, username string) (bool, error) {
 	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM mysql.user WHERE user_name = '%s'",
+		"SELECT COUNT(*) FROM mysql.user WHERE User = '%s'",
 		escapeSQLString(username),
 	)
 
@@ -425,6 +426,15 @@ func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo 
 		}
 	}
 	return nil
+}
+
+// parseInt parses a string to int, returning 0 on failure.
+func parseInt(s string) int {
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // escapeSQLString escapes single quotes and backslashes in SQL string values

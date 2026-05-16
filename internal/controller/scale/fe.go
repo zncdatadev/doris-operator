@@ -49,7 +49,7 @@ func (m *FEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]s
 		}
 
 		switch action.Strategy {
-		case "drop-observer":
+		case StrategyDropObserver:
 			if fe.Role == "FOLLOWER" || fe.IsMaster {
 				return nil, fmt.Errorf(
 					"cannot scale down FE %s: it is a %s node (only OBSERVER nodes can be scaled down)",

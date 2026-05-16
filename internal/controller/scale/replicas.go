@@ -12,6 +12,13 @@ import (
 const (
 	// defaultDecommissionTimeout is the default timeout for BE decommission
 	defaultDecommissionTimeout = "2h"
+
+	// StrategyDecommission is the default BE scale-down strategy
+	StrategyDecommission = "decommission"
+	// StrategyForceDrop is the force-drop BE scale-down strategy
+	StrategyForceDrop = "force-drop"
+	// StrategyDropObserver is the default FE scale-down strategy
+	StrategyDropObserver = "drop-observer"
 )
 
 // ScaleAction represents a scale operation to perform
@@ -125,7 +132,7 @@ func getPodsToRemove(podNames []string, currentReplicas, desiredReplicas int32) 
 		return nil
 	}
 
-	// PodNames are assumed sorted by ordinal (e.g., fe-default-2, fe-default-1, fe-default-0)
+	// PodNames are assumed sorted by ordinal in ascending order (e.g., fe-default-0, fe-default-1, fe-default-2).
 	// We remove from the highest ordinal
 	startIdx := len(podNames) - int(removeCount)
 	if startIdx < 0 {
@@ -142,7 +149,7 @@ func getBEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 			return strategy
 		}
 	}
-	return "decommission"
+	return StrategyDecommission
 }
 
 // getFEStrategy returns the scale-down strategy for FE
@@ -153,10 +160,11 @@ func getFEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 			return strategy
 		}
 	}
-	return "drop-observer"
+	return StrategyDropObserver
 }
 
-// GetDecommissionTimeout returns the decommission timeout duration
+// GetDecommissionTimeout returns the decommission timeout duration.
+// TODO: Implement timeout tracking in BE scale-down to automatically fallback to force-drop.
 func GetDecommissionTimeout(spec *dorisv1alpha1.DorisClusterSpec) string {
 	if spec.ClusterConfig != nil && spec.ClusterConfig.ScaleDownPolicy != nil &&
 		spec.ClusterConfig.ScaleDownPolicy.DecommissionTimeout != nil {
@@ -174,7 +182,7 @@ func GetStatefulSetReplicas(sts *appsv1.StatefulSet) int32 {
 }
 
 // GetStatefulSetPodNames returns sorted pod names from a StatefulSet based on actual running replicas.
-func GetStatefulSetPodNames(sts *appsv1.StatefulSet, namespace string) []string {
+func GetStatefulSetPodNames(sts *appsv1.StatefulSet) []string {
 	replicas := sts.Status.Replicas // Use actual running count, not spec
 	names := make([]string, 0, int(replicas))
 	for i := int32(0); i < replicas; i++ {

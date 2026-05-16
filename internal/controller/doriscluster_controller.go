@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/go-logr/logr"
 
@@ -121,18 +122,24 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Phase 2: Scale management (after resources are ready)
+	// TODO: Gate StatefulSet replica decrease behind scale manager to ensure safe scale-down
 	scaleResult, err := r.reconcileScale(ctx, instance)
 	if err != nil {
 		logger.Error(err, "Scale reconciliation failed", "cluster", instance.Name)
-		// Don't block resource reconciliation on scale errors; log and skip
-		_ = r.updateStatus(ctx, instance, scaleResult)
 		return ctrl.Result{}, nil
 	}
 
 	// Update CR status with node information
-	if err := r.updateStatus(ctx, instance, scaleResult); err != nil {
-		logger.Error(err, "Failed to update cluster status", "cluster", instance.Name)
-		return ctrl.Result{}, err
+	// If scaleResult is nil (e.g., BE not yet alive), build a basic status from pod list
+	if scaleResult == nil {
+		if err := r.updateStatusFromPods(ctx, instance); err != nil {
+			logger.Error(err, "Failed to update cluster status from pods", "cluster", instance.Name)
+		}
+	} else {
+		if err := r.updateStatus(ctx, instance, scaleResult); err != nil {
+			logger.Error(err, "Failed to update cluster status", "cluster", instance.Name)
+			return ctrl.Result{}, err
+		}
 	}
 
 	if scaleResult != nil && scaleResult.NeedRequeue {
@@ -159,6 +166,7 @@ func (r *DorisClusterReconciler) reconcileScale(
 	feHost := fmt.Sprintf("%s-fe-internal.%s.svc.%s", instance.Name, instance.Namespace, clusterDomain)
 
 	// Step 1: Connect to Doris FE with root credentials to initialize admin user if needed
+	// TODO: Skip root connection when AuthInitialized is true and authSecret is configured
 	rootClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, defaultDorisUser, "")
 	if err != nil {
 		logger.Info("Failed to connect to Doris FE for scale management",
@@ -208,6 +216,7 @@ func (r *DorisClusterReconciler) reconcileScale(
 		if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err == nil {
 			patch := ctrlclient.MergeFrom(latest.DeepCopy())
 			latest.Status.AuthInitialized = true
+			// TODO: Record secret resourceVersion in status to detect rotation
 			if err := r.Status().Patch(ctx, latest, patch); err != nil {
 				logger.Error(err, "Failed to update authInitialized status")
 			}
@@ -262,12 +271,54 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 			rs.SpecReplicas += scale.GetStatefulSetReplicas(&sts)
 			rs.CurrentReplicas += sts.Status.Replicas
 			rs.ReadyReplicas += sts.Status.ReadyReplicas
-			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts, sts.Namespace)...)
+			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts)...)
 		}
 		states[ct] = rs
 	}
 
 	return states, nil
+}
+
+// updateStatusFromPods builds a basic CR status from pod listings when
+// Doris SQL queries are unavailable (e.g., BE not yet alive).
+func (r *DorisClusterReconciler) updateStatusFromPods(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) error {
+	latest := &dorisv1alpha1.DorisCluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err != nil {
+		return err
+	}
+
+	patch := ctrlclient.MergeFrom(latest.DeepCopy())
+
+	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
+		podList := &corev1.PodList{}
+		labelSelector := ctrlclient.MatchingLabels{
+			"app.kubernetes.io/instance":  instance.Name,
+			"app.kubernetes.io/component": string(ct),
+		}
+		if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+			return err
+		}
+
+		nodes := make([]dorisv1alpha1.NodeStatus, 0, len(podList.Items))
+		for _, pod := range podList.Items {
+			nodes = append(nodes, dorisv1alpha1.NodeStatus{Name: pod.Name})
+		}
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
+
+		switch ct {
+		case constants.ComponentTypeFE:
+			latest.Status.FrontendNodes = nodes
+		case constants.ComponentTypeBE:
+			latest.Status.BackendNodes = nodes
+		case constants.ComponentTypeBroker:
+			latest.Status.BrokerNodes = nodes
+		}
+	}
+
+	return r.Status().Patch(ctx, latest, patch)
 }
 
 // updateStatus patches the DorisCluster status with node information

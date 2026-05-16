@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-be-default
+status:
+  availableReplicas: 3
+  readyReplicas: 3
+  replicas: 3
+---
+# Verify CR status reflects 3 BE nodes
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  name: doriscluster-sample
+status:
+  frontendNodes:
+    - name: doriscluster-sample-fe-default-0
+  backendNodes:
+    - name: doriscluster-sample-be-default-0
+    - name: doriscluster-sample-be-default-1
+    - name: doriscluster-sample-be-default-2

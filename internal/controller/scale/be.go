@@ -48,7 +48,7 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]s
 		}
 
 		switch action.Strategy {
-		case "decommission":
+		case StrategyDecommission:
 			if be.Decommission {
 				if doris_client.IsDecommissionComplete(*be) {
 					beScaleLogger.Info("BE decommission complete, ready for removal",
@@ -67,7 +67,7 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]s
 				}
 			}
 
-		case "force-drop":
+		case StrategyForceDrop:
 			beScaleLogger.Info("Force dropping BE node",
 				"pod", podName, "host", be.Host, "port", be.Port)
 			if err := m.client.DropBackend(ctx, be.Host, be.Port); err != nil {

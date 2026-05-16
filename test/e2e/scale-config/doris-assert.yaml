@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-be-default
+status:
+  availableReplicas: 1
+  readyReplicas: 1
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-fe-default
+status:
+  availableReplicas: 1
+  readyReplicas: 1
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: doriscluster-sample-broker-default
+status:
+  availableReplicas: 1
+  readyReplicas: 1
+  replicas: 1
+---
+# Verify CR status is populated
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
+metadata:
+  name: doriscluster-sample
+status:
+  frontendNodes:
+    - name: doriscluster-sample-fe-default-0
+  backendNodes:
+    - name: doriscluster-sample-be-default-0
+  brokerNodes:
+    - name: doriscluster-sample-broker-default-0
