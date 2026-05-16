@@ -25,8 +25,8 @@ const (
 	// defaultQueryTimeout is the timeout for executing a query
 	defaultQueryTimeout = 30 * time.Second
 
-	// defaultAdminUser is the default admin username when not specified in Secret
-	defaultAdminUser = "root"
+	// DefaultAdminUser is the default admin username when not specified in Secret
+	DefaultAdminUser = "root"
 )
 
 // FrontendInfo represents information about a Doris FE node
@@ -171,7 +171,9 @@ func (c *DorisClient) ShowFrontends(ctx context.Context) ([]FrontendInfo, error)
 		frontends = append(frontends, fe)
 	}
 
-	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating frontend rows: %w", err)
+	}
 	return frontends, nil
 }
 
@@ -260,7 +262,9 @@ func (c *DorisClient) ShowBackends(ctx context.Context) ([]BackendInfo, error) {
 		backends = append(backends, be)
 	}
 
-	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating backend rows: %w", err)
+	}
 	return backends, nil
 }
 
@@ -311,7 +315,9 @@ func (c *DorisClient) ShowBrokers(ctx context.Context) ([]BrokerInfo, error) {
 		brokers = append(brokers, bi)
 	}
 
-	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating broker rows: %w", err)
+	}
 	return brokers, nil
 }
 
@@ -432,6 +438,7 @@ func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo 
 func parseInt(s string) int {
 	v, err := strconv.Atoi(s)
 	if err != nil {
+		clientLogger.V(1).Info("Failed to parse int value", "value", s, "error", err)
 		return 0
 	}
 	return v
@@ -461,7 +468,7 @@ func escapeSQLString(s string) string {
 // If username key is not present, defaults to "root".
 // If password key is not present, returns empty password.
 func GetClusterAuthCredentials(secretData map[string][]byte) (username, password string) {
-	username = defaultAdminUser
+	username = DefaultAdminUser
 	password = ""
 
 	if secretData == nil {

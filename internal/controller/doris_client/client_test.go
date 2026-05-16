@@ -38,8 +38,8 @@ func TestEscapeSQLString(t *testing.T) {
 		},
 		{
 			name:  "no special characters",
-			input: defaultAdminUser,
-			want:  defaultAdminUser,
+			input: DefaultAdminUser,
+			want:  DefaultAdminUser,
 		},
 		{
 			name:  "single quote",
@@ -103,13 +103,13 @@ func TestGetClusterAuthCredentials(t *testing.T) {
 		{
 			name:       "nil secret data",
 			secretData: nil,
-			wantUser:   defaultAdminUser,
+			wantUser:   DefaultAdminUser,
 			wantPass:   "",
 		},
 		{
 			name:       "empty secret data",
 			secretData: map[string][]byte{},
-			wantUser:   defaultAdminUser,
+			wantUser:   DefaultAdminUser,
 			wantPass:   "",
 		},
 		{
@@ -121,7 +121,7 @@ func TestGetClusterAuthCredentials(t *testing.T) {
 		{
 			name:       "only password",
 			secretData: map[string][]byte{testSecretKey: []byte("mypass")},
-			wantUser:   defaultAdminUser,
+			wantUser:   DefaultAdminUser,
 			wantPass:   "mypass",
 		},
 		{
@@ -133,7 +133,7 @@ func TestGetClusterAuthCredentials(t *testing.T) {
 		{
 			name:       "empty username falls back to root",
 			secretData: map[string][]byte{testUserKey: []byte(""), "password": []byte("pass")},
-			wantUser:   defaultAdminUser,
+			wantUser:   DefaultAdminUser,
 			wantPass:   "pass",
 		},
 	}

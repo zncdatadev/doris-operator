@@ -96,6 +96,9 @@ func ComputeScaleActions(
 	}{
 		{constants.ComponentTypeFE, spec.Frontend, getFEStrategy(spec)},
 		{constants.ComponentTypeBE, spec.Backend, getBEStrategy(spec)},
+		// Note: Broker is intentionally excluded from scale actions.
+		// Broker nodes do not hold persistent data and can be safely scaled by the operator-go
+		// StatefulSet reconciler without requiring Doris-level decommission/drop.
 	}
 
 	for _, comp := range components {
@@ -181,10 +184,10 @@ func GetStatefulSetReplicas(sts *appsv1.StatefulSet) int32 {
 	return 1 // StatefulSet default
 }
 
-// GetStatefulSetPodNames returns sorted pod names from a StatefulSet based on actual running replicas.
+// GetStatefulSetPodNames returns sorted pod names from a StatefulSet based on spec.replicas.
 func GetStatefulSetPodNames(sts *appsv1.StatefulSet) []string {
-	replicas := sts.Status.Replicas // Use actual running count, not spec
-	names := make([]string, 0, int(replicas))
+	replicas := GetStatefulSetReplicas(sts)
+	names := make([]string, 0, replicas)
 	for i := int32(0); i < replicas; i++ {
 		names = append(names, fmt.Sprintf("%s-%d", sts.Name, i))
 	}
