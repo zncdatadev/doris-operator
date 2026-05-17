@@ -3,9 +3,9 @@ kind: StatefulSet
 metadata:
   name: doriscluster-sample-be-default
 status:
-  availableReplicas: 3
-  readyReplicas: 3
-  replicas: 3
+  availableReplicas: 1
+  readyReplicas: 1
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -16,11 +16,11 @@ status:
   readyReplicas: 1
   replicas: 1
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+# Verify CR status has FE node after scale-down
+apiVersion: doris.kubedoop.dev/v1alpha1
+kind: DorisCluster
 metadata:
-  name: doriscluster-sample-broker-default
+  name: doriscluster-sample
 status:
-  availableReplicas: 1
-  readyReplicas: 1
-  replicas: 1
+  frontendNodes:
+    - name: doriscluster-sample-fe-default-0

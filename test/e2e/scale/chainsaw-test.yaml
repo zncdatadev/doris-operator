@@ -1,0 +1,24 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: scale
+spec:
+  steps:
+  - name: install doris cluster with 1 BE replica
+    try:
+    - apply:
+        file: doris.yaml
+    - assert:
+        file: doris-assert.yaml
+  - name: scale up BE to 3 replicas
+    try:
+    - apply:
+        file: doris-scaled-up.yaml
+    - assert:
+        file: doris-scaled-up-assert.yaml
+  - name: scale down BE to 1 replica
+    try:
+    - apply:
+        file: doris.yaml
+    - assert:
+        file: doris-scaled-down-assert.yaml
