@@ -286,27 +286,58 @@ func (r *DorisClusterReconciler) updateStatus(
 		latest.Status.AuthInitialized = true
 	}
 
-	// Update node status from SQL queries if available
+	// buildPodNodeList creates a sorted list of NodeStatus from pod listings.
+	buildPodNodeList := func(ct constants.ComponentType) ([]dorisv1alpha1.NodeStatus, error) {
+		podList := &corev1.PodList{}
+		labelSelector := ctrlclient.MatchingLabels{
+			"app.kubernetes.io/instance":  instance.Name,
+			"app.kubernetes.io/component": string(ct),
+		}
+		if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+			return nil, err
+		}
+
+		nodes := make([]dorisv1alpha1.NodeStatus, 0, len(podList.Items))
+		for _, pod := range podList.Items {
+			nodes = append(nodes, dorisv1alpha1.NodeStatus{Name: pod.Name})
+		}
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
+		return nodes, nil
+	}
+
+	// Update node status from SQL queries if available, falling back to pod listings for missing components
 	if result != nil {
 		scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses, result.BrokerStatuses)
-	} else {
-		// Fallback: build basic status from pod listings
-		for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
-			podList := &corev1.PodList{}
-			labelSelector := ctrlclient.MatchingLabels{
-				"app.kubernetes.io/instance":  instance.Name,
-				"app.kubernetes.io/component": string(ct),
+
+		// Fallback to pod listing for components where SQL query failed (nil statuses)
+		if result.BEStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeBE); err != nil {
+				return err
+			} else {
+				latest.Status.BackendNodes = nodes
 			}
-			if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+		}
+		if result.FEStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeFE); err != nil {
+				return err
+			} else {
+				latest.Status.FrontendNodes = nodes
+			}
+		}
+		if result.BrokerStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeBroker); err != nil {
+				return err
+			} else {
+				latest.Status.BrokerNodes = nodes
+			}
+		}
+	} else {
+		// Full fallback: build status from pod listings for all components
+		for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
+			nodes, err := buildPodNodeList(ct)
+			if err != nil {
 				return err
 			}
-
-			nodes := make([]dorisv1alpha1.NodeStatus, 0, len(podList.Items))
-			for _, pod := range podList.Items {
-				nodes = append(nodes, dorisv1alpha1.NodeStatus{Name: pod.Name})
-			}
-			sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
-
 			switch ct {
 			case constants.ComponentTypeFE:
 				latest.Status.FrontendNodes = nodes
