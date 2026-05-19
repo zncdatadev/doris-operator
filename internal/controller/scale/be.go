@@ -85,7 +85,19 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, poli
 									tracker.ClearStart(podName)
 									continue
 								}
+							} else {
+								// Invalid timestamp — clear and backfill
+								beScaleLogger.Info("Invalid decommission start timestamp, backfilling",
+									"pod", podName, "value", startAnno)
+								tracker.ClearStart(podName)
+								tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
 							}
+						} else {
+							// Backfill: decommission in progress but start time missing
+							// (controller restart, upgrade with existing decommissions).
+							beScaleLogger.Info("Backfilling missing decommission start time",
+								"pod", podName)
+							tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
 						}
 					}
 					beScaleLogger.Info("BE decommission in progress, waiting",

@@ -254,8 +254,9 @@ func (t *decommissionTracker) Persist(ctx context.Context) error {
 	return nil
 }
 
-// PendingPods returns pod names that have active decommission tracking annotations.
+// PendingPods returns pod names that have active (non-cleared) decommission tracking.
 // These pods are in the middle of decommission and their STS replicas should be gated.
+// Results are sorted for deterministic behavior.
 func (t *decommissionTracker) PendingPods() []string {
 	if t.instance.Annotations == nil {
 		return nil
@@ -273,6 +274,7 @@ func (t *decommissionTracker) PendingPods() []string {
 			pods = append(pods, podName)
 		}
 	}
+	sort.Strings(pods)
 	return pods
 }
 
@@ -392,13 +394,13 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 		return false, func() {}
 	}
 
+	// Gate if there are in-progress decommissions (from annotations)
+	// OR if STS replicas exceed the spec desired count (first-reconcile case
+	// where annotations haven't been written yet).
 	tracker := newDecommissionTracker(instance, r.Client)
-	pendingPods := tracker.PendingPods()
-	if len(pendingPods) == 0 {
-		return false, func() {}
-	}
+	hasPending := len(tracker.PendingPods()) > 0
 
-	// Fetch current BE StatefulSets to get actual running replica count
+	// Fetch current BE StatefulSets to detect scale-down intent
 	stsList := &appsv1.StatefulSetList{}
 	labelSelector := ctrlclient.MatchingLabels{
 		opgpconstants.LabelKubernetesInstance:  instance.Name,
@@ -425,29 +427,46 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 		return false, func() {}
 	}
 
-	logger.Info("Gating BE spec replicas for in-progress decommission",
-		"cluster", instance.Name,
-		"desired", desired,
-		"current", currentReplicas,
-		"pendingPods", pendingPods)
+	if !hasPending {
+		// First reconcile after scale-down intent detected but no annotations yet.
+		// This is the critical window: Phase 1 would scale down before Phase 2 records
+		// decommission-start annotations. Gate now to prevent premature deletion.
+		logger.Info("Gating BE spec replicas on first scale-down detection",
+			"cluster", instance.Name,
+			"desired", desired,
+			"current", currentReplicas)
+	} else {
+		logger.Info("Gating BE spec replicas for in-progress decommission",
+			"cluster", instance.Name,
+			"desired", desired,
+			"current", currentReplicas,
+			"pendingPods", tracker.PendingPods())
+	}
 
 	// For single roleGroup: override replicas directly
-	// For multi roleGroup: gate proportionally across groups (best-effort)
 	if len(instance.Spec.Backend.RoleGroups) == 1 {
-		for name, rg := range instance.Spec.Backend.RoleGroups {
+		for name := range instance.Spec.Backend.RoleGroups {
+			rg := instance.Spec.Backend.RoleGroups[name]
 			original := rg.Replicas
-			rg.Replicas = &currentReplicas
+
+			// Allocate a stable variable for the gated value (not a loop-local)
+			gated := currentReplicas
+			rg.Replicas = &gated
+			instance.Spec.Backend.RoleGroups[name] = rg
+
 			return true, func() {
 				logger.V(1).Info("Restoring BE spec replicas after gate",
 					"cluster", instance.Name, "roleGroup", name,
-					"restored", original, "gated", currentReplicas)
+					"restored", original, "gated", gated)
+				rg := instance.Spec.Backend.RoleGroups[name]
 				rg.Replicas = original
+				instance.Spec.Backend.RoleGroups[name] = rg
 			}
 		}
 	}
 
 	// Multi-roleGroup: gate proportionally by distributing the current total
-	// across groups weighted by their desired replicas
+	// across groups weighted by their desired replicas.
 	totalDesired := desired
 	if totalDesired == 0 {
 		return false, func() {}
@@ -472,7 +491,6 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 
 		var gated int32
 		if i == len(groupNames)-1 {
-			// Last group gets the remainder to avoid rounding drift
 			gated = remaining
 		} else {
 			gated = currentReplicas * groupDesired / totalDesired
@@ -481,14 +499,18 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 			}
 		}
 		remaining -= gated
-		rg.Replicas = &gated
+
+		// Allocate stable per-group variable for gated value
+		gatedCopy := gated
+		rg.Replicas = &gatedCopy
 		instance.Spec.Backend.RoleGroups[name] = rg
 	}
 
 	return true, func() {
 		for name, original := range originals {
 			rg := instance.Spec.Backend.RoleGroups[name]
-			rg.Replicas = &original
+			restoreCopy := original
+			rg.Replicas = &restoreCopy
 			instance.Spec.Backend.RoleGroups[name] = rg
 		}
 	}

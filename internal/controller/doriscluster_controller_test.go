@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -60,6 +61,26 @@ func TestDecommissionTracker_GetStart(t *testing.T) {
 	_, ok = tracker.GetStart("be-0")
 	if ok {
 		t.Error("expected false after clear")
+	}
+}
+
+// assertPendingPodsSet compares PendingPods() result against want as a set.
+func assertPendingPodsSet(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("PendingPods() len = %d, want %d", len(got), len(want))
+		return
+	}
+	gotSorted := make([]string, len(got))
+	copy(gotSorted, got)
+	sort.Strings(gotSorted)
+	wantSorted := make([]string, len(want))
+	copy(wantSorted, want)
+	sort.Strings(wantSorted)
+	for i := range gotSorted {
+		if gotSorted[i] != wantSorted[i] {
+			t.Errorf("PendingPods()[%d] = %q, want %q", i, gotSorted[i], wantSorted[i])
+		}
 	}
 }
 
@@ -127,16 +148,7 @@ func TestDecommissionTracker_PendingPods(t *testing.T) {
 			if tt.pending != nil {
 				tracker.pending = tt.pending
 			}
-			got := tracker.PendingPods()
-			if len(got) != len(tt.want) {
-				t.Errorf("PendingPods() len = %d, want %d", len(got), len(tt.want))
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("PendingPods()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
+			assertPendingPodsSet(t, tracker.PendingPods(), tt.want)
 		})
 	}
 }
@@ -189,14 +201,16 @@ func TestGateBESpecReplicas_SingleRoleGroup(t *testing.T) {
 	// Simulate gating: copy the roleGroup, modify replicas, put back
 	rg := instance.Spec.Backend.RoleGroups["default"]
 	original := rg.Replicas
-	rg.Replicas = &current
+
+	gated := current // stable allocation, not a loop variable
+	rg.Replicas = &gated
 	instance.Spec.Backend.RoleGroups["default"] = rg
 
 	if *instance.Spec.Backend.RoleGroups["default"].Replicas != current {
 		t.Errorf("expected gated replicas %d, got %d", current, *instance.Spec.Backend.RoleGroups["default"].Replicas)
 	}
 
-	// Restore
+	// Restore — re-read from map, modify, write back
 	rg = instance.Spec.Backend.RoleGroups["default"]
 	rg.Replicas = original
 	instance.Spec.Backend.RoleGroups["default"] = rg
@@ -230,7 +244,7 @@ func TestGateBESpecReplicas_MultiRoleGroup(t *testing.T) {
 		},
 	}
 
-	// Simulate proportional gating
+	// Simulate proportional gating with stable per-group allocations
 	originals := make(map[string]int32)
 	remaining := currentReplicas
 	groupNames := []string{"rg1", "rg2"}
@@ -254,7 +268,10 @@ func TestGateBESpecReplicas_MultiRoleGroup(t *testing.T) {
 			}
 		}
 		remaining -= gated
-		rg.Replicas = &gated
+
+		// Stable per-group allocation — copy to a new variable before taking address
+		gatedCopy := gated
+		rg.Replicas = &gatedCopy
 		instance.Spec.Backend.RoleGroups[name] = rg
 	}
 
@@ -269,18 +286,21 @@ func TestGateBESpecReplicas_MultiRoleGroup(t *testing.T) {
 		t.Errorf("total gated replicas = %d, want %d", totalGated, currentReplicas)
 	}
 
-	// Restore
+	// Restore using stable originals
 	for name, original := range originals {
 		rg := instance.Spec.Backend.RoleGroups[name]
 		rg.Replicas = &original
 		instance.Spec.Backend.RoleGroups[name] = rg
 	}
 
-	if *instance.Spec.Backend.RoleGroups["rg1"].Replicas != rg1Desired {
-		t.Errorf("rg1 restored = %d, want %d", *instance.Spec.Backend.RoleGroups["rg1"].Replicas, rg1Desired)
+	// Verify restoration by value (not pointer identity)
+	rg1 := instance.Spec.Backend.RoleGroups["rg1"]
+	if rg1.Replicas == nil || *rg1.Replicas != rg1Desired {
+		t.Errorf("rg1 restored = %v, want %d", rg1.Replicas, rg1Desired)
 	}
-	if *instance.Spec.Backend.RoleGroups["rg2"].Replicas != rg2Desired {
-		t.Errorf("rg2 restored = %d, want %d", *instance.Spec.Backend.RoleGroups["rg2"].Replicas, rg2Desired)
+	rg2 := instance.Spec.Backend.RoleGroups["rg2"]
+	if rg2.Replicas == nil || *rg2.Replicas != rg2Desired {
+		t.Errorf("rg2 restored = %v, want %d", rg2.Replicas, rg2Desired)
 	}
 }
 
