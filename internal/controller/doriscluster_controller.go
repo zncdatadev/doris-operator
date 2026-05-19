@@ -394,11 +394,14 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 		return false, func() {}
 	}
 
-	// Gate if there are in-progress decommissions (from annotations)
-	// OR if STS replicas exceed the spec desired count (first-reconcile case
-	// where annotations haven't been written yet).
+	// Gate if there are in-progress decommissions (from CR annotations).
+	// Once Phase 2 records decommission-start annotations, subsequent reconciles
+	// will gate here to prevent STS from scaling down before decommission completes.
 	tracker := newDecommissionTracker(instance, r.Client)
 	hasPending := len(tracker.PendingPods()) > 0
+	if !hasPending {
+		return false, func() {}
+	}
 
 	// Fetch current BE StatefulSets to detect scale-down intent
 	stsList := &appsv1.StatefulSetList{}
@@ -427,21 +430,11 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 		return false, func() {}
 	}
 
-	if !hasPending {
-		// First reconcile after scale-down intent detected but no annotations yet.
-		// This is the critical window: Phase 1 would scale down before Phase 2 records
-		// decommission-start annotations. Gate now to prevent premature deletion.
-		logger.Info("Gating BE spec replicas on first scale-down detection",
-			"cluster", instance.Name,
-			"desired", desired,
-			"current", currentReplicas)
-	} else {
-		logger.Info("Gating BE spec replicas for in-progress decommission",
-			"cluster", instance.Name,
-			"desired", desired,
-			"current", currentReplicas,
-			"pendingPods", tracker.PendingPods())
-	}
+	logger.Info("Gating BE spec replicas for in-progress decommission",
+		"cluster", instance.Name,
+		"desired", desired,
+		"current", currentReplicas,
+		"pendingPods", tracker.PendingPods())
 
 	// For single roleGroup: override replicas directly
 	if len(instance.Spec.Backend.RoleGroups) == 1 {
