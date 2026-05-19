@@ -37,6 +37,7 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/client"
+	opgpconstants "github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 )
 
@@ -400,8 +401,8 @@ func (r *DorisClusterReconciler) gateBESpecReplicas(
 	// Fetch current BE StatefulSets to get actual running replica count
 	stsList := &appsv1.StatefulSetList{}
 	labelSelector := ctrlclient.MatchingLabels{
-		"app.kubernetes.io/instance":  instance.Name,
-		"app.kubernetes.io/component": string(constants.ComponentTypeBE),
+		opgpconstants.LabelKubernetesInstance:  instance.Name,
+		opgpconstants.LabelKubernetesComponent: string(constants.ComponentTypeBE),
 	}
 	if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
 		logger.Error(err, "Failed to list BE StatefulSets for gating", "cluster", instance.Name)
@@ -504,8 +505,8 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
 		stsList := &appsv1.StatefulSetList{}
 		labelSelector := ctrlclient.MatchingLabels{
-			"app.kubernetes.io/instance":  instance.Name,
-			"app.kubernetes.io/component": string(ct),
+			opgpconstants.LabelKubernetesInstance:  instance.Name,
+			opgpconstants.LabelKubernetesComponent: string(ct),
 		}
 		if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
 			return nil, fmt.Errorf("failed to list StatefulSets for %s: %w", ct, err)
@@ -553,8 +554,8 @@ func (r *DorisClusterReconciler) updateStatus(
 	buildPodNodeList := func(ct constants.ComponentType) ([]dorisv1alpha1.NodeStatus, error) {
 		podList := &corev1.PodList{}
 		labelSelector := ctrlclient.MatchingLabels{
-			"app.kubernetes.io/instance":  instance.Name,
-			"app.kubernetes.io/component": string(ct),
+			opgpconstants.LabelKubernetesInstance:  instance.Name,
+			opgpconstants.LabelKubernetesComponent: string(ct),
 		}
 		if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
 			return nil, err

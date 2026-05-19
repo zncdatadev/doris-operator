@@ -18,17 +18,25 @@ package controller
 
 import (
 	"testing"
+	"time"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/scale"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	testClusterName      = "test"
+	testClusterNamespace = "default"
+	testTimestamp        = "2026-05-19T10:00:00Z"
+	testAnnoBE0          = "doris.kubedoop.dev/decommission-start/be-0"
+)
+
 func TestDecommissionTracker_GetStart(t *testing.T) {
 	instance := &dorisv1alpha1.DorisCluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test",
-			Namespace:   "default",
+			Name:        testClusterName,
+			Namespace:   testClusterNamespace,
 			Annotations: map[string]string{},
 		},
 	}
@@ -41,9 +49,9 @@ func TestDecommissionTracker_GetStart(t *testing.T) {
 	}
 
 	// Set and read back
-	tracker.RecordStart("be-0", "2026-05-19T10:00:00Z")
+	tracker.RecordStart("be-0", testTimestamp)
 	val, ok := tracker.GetStart("be-0")
-	if !ok || val != "2026-05-19T10:00:00Z" {
+	if !ok || val != testTimestamp {
 		t.Errorf("expected recorded start, got val=%q ok=%v", val, ok)
 	}
 
@@ -70,7 +78,7 @@ func TestDecommissionTracker_PendingPods(t *testing.T) {
 		{
 			name: "active decommission",
 			annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "2026-05-19T10:00:00Z",
+				testAnnoBE0: testTimestamp,
 				"doris.kubedoop.dev/decommission-start/be-1": "2026-05-19T10:01:00Z",
 			},
 			want: []string{"be-0", "be-1"},
@@ -78,29 +86,29 @@ func TestDecommissionTracker_PendingPods(t *testing.T) {
 		{
 			name: "cleared in pending",
 			annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "2026-05-19T10:00:00Z",
+				testAnnoBE0: testTimestamp,
 			},
 			pending: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "", // cleared
+				testAnnoBE0: "", // cleared
 			},
 			want: nil,
 		},
 		{
 			name: "mixed - one active one cleared",
 			annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "2026-05-19T10:00:00Z",
+				testAnnoBE0: testTimestamp,
 				"doris.kubedoop.dev/decommission-start/be-1": "2026-05-19T10:01:00Z",
 			},
 			pending: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "",
+				testAnnoBE0: "",
 			},
 			want: []string{"be-1"},
 		},
 		{
 			name: "unrelated annotation ignored",
 			annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-0": "2026-05-19T10:00:00Z",
-				"some.other/annotation":                      "value",
+				testAnnoBE0:             testTimestamp,
+				"some.other/annotation": "value",
 			},
 			want: []string{"be-0"},
 		},
@@ -110,8 +118,8 @@ func TestDecommissionTracker_PendingPods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			instance := &dorisv1alpha1.DorisCluster{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test",
-					Namespace:   "default",
+					Name:        testClusterName,
+					Namespace:   testClusterNamespace,
 					Annotations: tt.annotations,
 				},
 			}
@@ -135,7 +143,7 @@ func TestDecommissionTracker_PendingPods(t *testing.T) {
 
 func TestDecommissionTracker_Dirty(t *testing.T) {
 	instance := &dorisv1alpha1.DorisCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: testClusterNamespace},
 	}
 	tracker := newDecommissionTracker(instance, nil)
 
@@ -143,7 +151,7 @@ func TestDecommissionTracker_Dirty(t *testing.T) {
 		t.Error("expected clean tracker on init")
 	}
 
-	tracker.RecordStart("be-0", "2026-05-19T10:00:00Z")
+	tracker.RecordStart("be-0", testTimestamp)
 	if !tracker.dirty {
 		t.Error("expected dirty after RecordStart")
 	}
@@ -163,10 +171,10 @@ func TestGateBESpecReplicas_SingleRoleGroup(t *testing.T) {
 
 	instance := &dorisv1alpha1.DorisCluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "default",
+			Name:      testClusterName,
+			Namespace: testClusterNamespace,
 			Annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-2": "2026-05-19T10:00:00Z",
+				"doris.kubedoop.dev/decommission-start/be-2": testTimestamp,
 			},
 		},
 		Spec: dorisv1alpha1.DorisClusterSpec{
@@ -206,10 +214,10 @@ func TestGateBESpecReplicas_MultiRoleGroup(t *testing.T) {
 
 	instance := &dorisv1alpha1.DorisCluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "default",
+			Name:      testClusterName,
+			Namespace: testClusterNamespace,
 			Annotations: map[string]string{
-				"doris.kubedoop.dev/decommission-start/be-2": "2026-05-19T10:00:00Z",
+				"doris.kubedoop.dev/decommission-start/be-2": testTimestamp,
 			},
 		},
 		Spec: dorisv1alpha1.DorisClusterSpec{
@@ -281,19 +289,19 @@ func TestScaleDownPolicy_Timeout(t *testing.T) {
 	policy := &clusterScaleDownPolicy{spec: spec}
 
 	timeout := policy.GetDecommissionTimeout()
-	if timeout != 2*1000000000*3600 { // 2h in nanoseconds
+	if timeout != 2*time.Hour {
 		t.Errorf("expected 2h default timeout, got %v", timeout)
 	}
 
 	// Custom timeout
-	custom := metav1.Duration{Duration: 30 * 60 * 1000000000} // 30 minutes
+	custom := metav1.Duration{Duration: 30 * time.Minute}
 	spec.ClusterConfig = &dorisv1alpha1.ClusterConfigSpec{
 		ScaleDownPolicy: &dorisv1alpha1.ScaleDownPolicySpec{
 			DecommissionTimeout: &custom,
 		},
 	}
 	timeout = policy.GetDecommissionTimeout()
-	if timeout != 30*60*1000000000 {
+	if timeout != 30*time.Minute {
 		t.Errorf("expected 30m custom timeout, got %v", timeout)
 	}
 }
