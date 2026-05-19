@@ -24,9 +24,8 @@ status:
   availableReplicas: 1
   readyReplicas: 1
   replicas: 1
-
 ---
-# Verify DorisCluster CR status is populated with node info
+# Verify CR status has nodes populated (STS ready triggers status update)
 apiVersion: doris.kubedoop.dev/v1alpha1
 kind: DorisCluster
 metadata:

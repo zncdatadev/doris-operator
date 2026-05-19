@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	emperror.dev/errors v0.8.1
+	github.com/go-sql-driver/mysql v1.10.0
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
 	github.com/zncdatadev/operator-go v0.12.6
@@ -13,6 +14,7 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/cisco-open/k8s-objectmatcher v1.10.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

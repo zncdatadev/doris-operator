@@ -39,7 +39,26 @@ spec:
           spec:
             description: DorisClusterSpec defines the desired state of DorisCluster
             properties:
-              backEnd:
+              authSecret:
+                description: |-
+                  AuthSecret references a Secret containing the Doris cluster admin credentials.
+                  The Secret must be of type `kubernetes.io/basic-auth` with keys `username` and `password`.
+                  If configured, the operator will use these credentials to connect to Doris FE for scale management.
+                  If the specified user does not exist in Doris, the operator will create it with NODE_PRIV
+                  and GRANT_PRIV privileges on first cluster initialization.
+                  If not configured, the operator defaults to root with an empty password.
+                properties:
+                  secretName:
+                    description: |-
+                      Name of the Secret in the same namespace as the DorisCluster.
+                      The Secret should be of type `kubernetes.io/basic-auth` with keys:
+                        - username: the admin user name (defaults to "root" if not set)
+                        - password: the admin user password
+                    type: string
+                required:
+                - secretName
+                type: object
+              backend:
                 properties:
                   cliOverrides:
                     items:
@@ -724,6 +743,29 @@ spec:
                   ingressHost:
                     default: example.com
                     type: string
+                  scaleDownPolicy:
+                    description: ScaleDownPolicySpec defines the scale-down policy
+                      for Doris cluster components.
+                    properties:
+                      backendStrategy:
+                        default: decommission
+                        enum:
+                        - decommission
+                        - force-drop
+                        type: string
+                      decommissionTimeout:
+                        default: 2h
+                        description: |-
+                          DecommissionTimeout is the maximum duration to wait for BE decommission to complete.
+                          After this timeout, the operator will force-drop the node instead of waiting for data migration.
+                          NOTE: This field is reserved for future implementation; currently decommission will wait indefinitely.
+                        type: string
+                      frontendStrategy:
+                        default: drop-observer
+                        enum:
+                        - drop-observer
+                        type: string
+                    type: object
                   vectorAggregatorConfigMapName:
                     type: string
                 type: object
@@ -737,7 +779,7 @@ spec:
                     default: false
                     type: boolean
                 type: object
-              frontEnd:
+              frontend:
                 properties:
                   cliOverrides:
                     items:
@@ -1093,12 +1135,59 @@ spec:
                     type: string
                 type: object
             required:
-            - backEnd
-            - frontEnd
+            - backend
+            - frontend
             type: object
           status:
-            description: Status defines the common status
+            description: DorisClusterStatus defines the observed state of DorisCluster
             properties:
+              authInitialized:
+                description: |-
+                  AuthInitialized indicates whether the admin user specified in authSecret
+                  has been created and granted privileges in the Doris cluster.
+                type: boolean
+              backendNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
+                  type: object
+                type: array
+              brokerNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
+                  type: object
+                type: array
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -1153,6 +1242,27 @@ spec:
                   - reason
                   - status
                   - type
+                  type: object
+                type: array
+              frontendNodes:
+                items:
+                  description: NodeStatus represents the status of a Doris cluster
+                    node
+                  properties:
+                    alive:
+                      type: boolean
+                    host:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      description: 'Phase is the node lifecycle phase: Registered
+                        / Decommissioning / Decommissioned / ForceDropped'
+                      type: string
+                    role:
+                      description: Role is the node role (follower/observer for FE,
+                        empty for BE/Broker)
+                      type: string
                   type: object
                 type: array
               generation:

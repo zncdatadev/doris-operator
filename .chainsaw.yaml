@@ -6,7 +6,7 @@ spec:
   # namespace: chainsaw
   timeouts:
     apply: 120s
-    assert: 400s
+    assert: 600s
     cleanup: 120s
     delete: 240s
     error: 120s

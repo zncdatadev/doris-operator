@@ -18,11 +18,19 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"sort"
 
 	"github.com/go-logr/logr"
 
+	"github.com/zncdatadev/doris-operator/internal/controller/constants"
+	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
+	"github.com/zncdatadev/doris-operator/internal/controller/scale"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -56,10 +64,7 @@ type DorisClusterReconciler struct {
 
 var logger = ctrl.Log.WithName("doriscluster-controller")
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
+// Reconcile is part of the main kubernetes reconciliation loop
 func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger.V(1).Info("Reconciling DorisCluster")
 
@@ -112,9 +117,239 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return result, nil
 	}
 
+	// Phase 2: Scale management (after resources are ready)
+	// TODO: Gate StatefulSet replica decrease behind scale manager to ensure safe scale-down
+	scaleResult, authInitialized, err := r.reconcileScale(ctx, instance)
+	if err != nil {
+		logger.Error(err, "Scale reconciliation failed", "cluster", instance.Name)
+		return ctrl.Result{}, nil
+	}
+
+	// Update CR status with node information (single status patch)
+	if err := r.updateStatus(ctx, instance, scaleResult, authInitialized); err != nil {
+		logger.Error(err, "Failed to update cluster status", "cluster", instance.Name)
+		return ctrl.Result{}, err
+	}
+
+	if scaleResult != nil && scaleResult.NeedRequeue {
+		logger.Info("Scale operation in progress, requeuing", "cluster", instance.Name, "after", scaleResult.RequeueAfter)
+		return ctrl.Result{RequeueAfter: scaleResult.RequeueAfter}, nil
+	}
+
 	logger.V(1).Info("Reconcile finished.", "cluster", instance.Name, "namespace", instance.Namespace)
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileScale performs scale reconciliation by connecting to Doris FE
+// and checking if any scale-down operations are needed.
+// It returns the scale result and an optional authInitialized flag.
+func (r *DorisClusterReconciler) reconcileScale(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (*scale.ScaleResult, bool, error) {
+	// Build FE service DNS name for MySQL connection
+	clusterDomain := "cluster.local"
+	if instance.Spec.ClusterConfig != nil && instance.Spec.ClusterConfig.ClusterDomain != "" {
+		clusterDomain = instance.Spec.ClusterConfig.ClusterDomain
+	}
+	feHost := fmt.Sprintf("%s-fe-internal.%s.svc.%s", instance.Name, instance.Namespace, clusterDomain)
+
+	// Resolve management credentials
+	var mgmtUser, mgmtPass string
+	needBootstrap := instance.Spec.AuthSecret != nil && !instance.Status.AuthInitialized
+
+	if instance.Spec.AuthSecret != nil {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      instance.Spec.AuthSecret.SecretName,
+			Namespace: instance.Namespace,
+		}, secret); err != nil {
+			if ctrlclient.IgnoreNotFound(err) == nil {
+				logger.Info("AuthSecret not found yet, skipping scale reconciliation",
+					"secret", instance.Spec.AuthSecret.SecretName)
+				return nil, false, nil
+			}
+			return nil, false, fmt.Errorf("failed to get authSecret: %w", err)
+		}
+		mgmtUser, mgmtPass = doris_client.GetClusterAuthCredentials(secret.Data)
+	} else {
+		mgmtUser = doris_client.DefaultAdminUser
+		mgmtPass = ""
+	}
+
+	// Bootstrap the admin user with root credentials if needed.
+	// This is only done once when authSecret is first configured.
+	if needBootstrap {
+		rootClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, doris_client.DefaultAdminUser, "")
+		if err != nil {
+			logger.Info("Failed to connect to Doris FE for auth bootstrap",
+				"host", feHost, "error", err)
+			return nil, false, nil
+		}
+
+		exists, err := rootClient.CheckUserExists(ctx, mgmtUser)
+		if err != nil {
+			_ = rootClient.Close()
+			logger.Error(err, "Failed to check if admin user exists", "user", mgmtUser)
+			return nil, false, nil
+		}
+		if !exists {
+			if err := rootClient.InitializeAdminUser(ctx, mgmtUser, mgmtPass); err != nil {
+				_ = rootClient.Close()
+				logger.Error(err, "Failed to initialize admin user", "user", mgmtUser)
+				return nil, false, nil
+			}
+		}
+		_ = rootClient.Close()
+	}
+
+	// Connect with management credentials for scale operations
+	mgmtClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, mgmtUser, mgmtPass)
+	if err != nil {
+		logger.Info("Failed to connect to Doris FE with management credentials",
+			"host", feHost, "user", mgmtUser, "error", err)
+		return nil, false, nil
+	}
+	defer func() { _ = mgmtClient.Close() }()
+
+	scaleMgr := scale.NewScaleManager(mgmtClient)
+	defer scaleMgr.Close()
+
+	// Fetch current StatefulSets
+	replicaStates, err := r.fetchReplicaStates(ctx, instance)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to fetch replica states: %w", err)
+	}
+
+	result, err := scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return result, needBootstrap, nil
+}
+
+// fetchReplicaStates builds replica states for all cluster components
+// by listing StatefulSets via label selector (supports multiple roleGroups).
+func (r *DorisClusterReconciler) fetchReplicaStates(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (map[constants.ComponentType]*scale.ReplicaState, error) {
+	states := make(map[constants.ComponentType]*scale.ReplicaState)
+
+	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
+		stsList := &appsv1.StatefulSetList{}
+		labelSelector := ctrlclient.MatchingLabels{
+			"app.kubernetes.io/instance":  instance.Name,
+			"app.kubernetes.io/component": string(ct),
+		}
+		if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+			return nil, fmt.Errorf("failed to list StatefulSets for %s: %w", ct, err)
+		}
+
+		if len(stsList.Items) == 0 {
+			continue
+		}
+
+		rs := &scale.ReplicaState{Component: ct}
+		for _, sts := range stsList.Items {
+			rs.SpecReplicas += scale.GetStatefulSetReplicas(&sts)
+			rs.CurrentReplicas += sts.Status.Replicas
+			rs.ReadyReplicas += sts.Status.ReadyReplicas
+			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts)...)
+		}
+		states[ct] = rs
+	}
+
+	return states, nil
+}
+
+// updateStatus patches the DorisCluster status in a single patch operation.
+// When scaleResult is nil (e.g., BE not yet alive), it falls back to pod-list-based status.
+// When authBootstrap is true, it also sets AuthInitialized = true.
+func (r *DorisClusterReconciler) updateStatus(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+	result *scale.ScaleResult,
+	authBootstrap bool,
+) error {
+	latest := &dorisv1alpha1.DorisCluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}, latest); err != nil {
+		return err
+	}
+
+	patch := ctrlclient.MergeFrom(latest.DeepCopy())
+
+	// Mark auth initialization as complete
+	if authBootstrap {
+		latest.Status.AuthInitialized = true
+	}
+
+	// buildPodNodeList creates a sorted list of NodeStatus from pod listings.
+	buildPodNodeList := func(ct constants.ComponentType) ([]dorisv1alpha1.NodeStatus, error) {
+		podList := &corev1.PodList{}
+		labelSelector := ctrlclient.MatchingLabels{
+			"app.kubernetes.io/instance":  instance.Name,
+			"app.kubernetes.io/component": string(ct),
+		}
+		if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+			return nil, err
+		}
+
+		nodes := make([]dorisv1alpha1.NodeStatus, 0, len(podList.Items))
+		for _, pod := range podList.Items {
+			nodes = append(nodes, dorisv1alpha1.NodeStatus{Name: pod.Name})
+		}
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
+		return nodes, nil
+	}
+
+	// Update node status from SQL queries if available, falling back to pod listings for missing components
+	if result != nil {
+		scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses, result.BrokerStatuses)
+
+		// Fallback to pod listing for components where SQL query failed (nil statuses)
+		if result.BEStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeBE); err != nil {
+				return err
+			} else {
+				latest.Status.BackendNodes = nodes
+			}
+		}
+		if result.FEStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeFE); err != nil {
+				return err
+			} else {
+				latest.Status.FrontendNodes = nodes
+			}
+		}
+		if result.BrokerStatuses == nil {
+			if nodes, err := buildPodNodeList(constants.ComponentTypeBroker); err != nil {
+				return err
+			} else {
+				latest.Status.BrokerNodes = nodes
+			}
+		}
+	} else {
+		// Full fallback: build status from pod listings for all components
+		for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
+			nodes, err := buildPodNodeList(ct)
+			if err != nil {
+				return err
+			}
+			switch ct {
+			case constants.ComponentTypeFE:
+				latest.Status.FrontendNodes = nodes
+			case constants.ComponentTypeBE:
+				latest.Status.BackendNodes = nodes
+			case constants.ComponentTypeBroker:
+				latest.Status.BrokerNodes = nodes
+			}
+		}
+	}
+
+	return r.Status().Patch(ctx, latest, patch)
 }
 
 // SetupWithManager sets up the controller with the Manager.

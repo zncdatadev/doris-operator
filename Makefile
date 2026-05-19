@@ -267,7 +267,7 @@ endif
 # and the target kubeconfig file will be named as `./kind-kubeconfig-$(KIND_K8S_VERSION)`.
 # So if you want to use the target cluster, to run `export KUBECONFIG=./kind-kubeconfig-$(KIND_K8S_VERSION)`.
 KIND_K8S_VERSION ?= 1.26.15
-CHAINSAW_VERSION ?= v0.2.12
+CHAINSAW_VERSION ?= v0.2.13
 
 KIND_IMAGE ?= kindest/node:v${KIND_K8S_VERSION}
 KIND_KUBECONFIG ?= ./kind-kubeconfig-$(KIND_K8S_VERSION)

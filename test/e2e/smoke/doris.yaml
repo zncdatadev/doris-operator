@@ -8,7 +8,7 @@ metadata:
 spec:
   clusterConfig:
     vectorAggregatorConfigMapName: vector-aggregator-discovery
-  frontEnd:
+  frontend:
     roleGroups:
       default:
         replicas: 1
@@ -21,7 +21,7 @@ spec:
                   level: INFO
           resources:
             cpu: {}
-  backEnd:
+  backend:
     roleGroups:
       default:
         replicas: 1

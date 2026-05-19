@@ -3,12 +3,9 @@ kind: DorisCluster
 metadata:
   labels:
     app.kubernetes.io/name: doris-operator
-    app.kubernetes.io/managed-by: kustomize
   name: doriscluster-sample
 spec:
-  clusterConfig:
-    authentication:
-      - authenticationClass: ldap
+  clusterConfig: {}
   frontend:
     roleGroups:
       default:
@@ -24,6 +21,8 @@ spec:
           resources:
             cpu: {}
         envOverrides:
-          # When doris be starts, it will check `vm.max_map_count` lt 2000000 and swappiness is disabled.
-          # Due to swappiness is not configurable in kind cluster, skip ulimit check to avoid test failure.
           SKIP_CHECK_ULIMIT: "true"
+  broker:
+    roleGroups:
+      default:
+        replicas: 1

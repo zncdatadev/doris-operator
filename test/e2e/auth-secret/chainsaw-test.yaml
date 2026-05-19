@@ -1,0 +1,22 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: auth-secret
+spec:
+  steps:
+  - name: create admin secret
+    try:
+    - apply:
+        file: secret.yaml
+    - assert:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: doris-admin-secret
+  - name: install doris cluster with authSecret
+    try:
+    - apply:
+        file: doris.yaml
+    - assert:
+        file: doris-assert.yaml
