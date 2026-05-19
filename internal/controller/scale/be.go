@@ -3,6 +3,7 @@ package scale
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,9 +21,11 @@ func NewBEScaleManager(client *doris_client.DorisClient) *BEScaleManager {
 	return &BEScaleManager{client: client}
 }
 
-// ScaleDown performs scale-down for BE nodes
-// It returns the number of pods that have been decommissioned (ready for removal).
-func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]string, error) {
+// ScaleDown performs scale-down for BE nodes.
+// It returns the list of pods that have been decommissioned (ready for removal).
+// When scaleConfig is non-nil, decommission timeout is enforced: if decommission exceeds
+// the configured timeout, the strategy automatically falls back to force-drop.
+func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scaleConfig ScaleConfig) ([]string, error) {
 	if !action.IsScaleDown() {
 		return nil, nil
 	}
@@ -37,6 +40,10 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]s
 	}
 
 	var readyForRemoval []string
+	var decommissionTimeout time.Duration
+	if scaleConfig != nil {
+		decommissionTimeout = scaleConfig.GetDecommissionTimeout()
+	}
 
 	for _, podName := range action.PodsToRemove {
 		be := doris_client.MatchPodToBackend(podName, backends)
@@ -55,15 +62,38 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction) ([]s
 						"pod", podName, "host", be.Host)
 					readyForRemoval = append(readyForRemoval, podName)
 				} else {
+					// Check decommission timeout for fallback to force-drop
+					if decommissionTimeout > 0 && scaleConfig != nil {
+						if startAnno, ok := scaleConfig.GetDecommissionStartAnnotation(podName); ok {
+							if startedAt, err := time.Parse(time.RFC3339, startAnno); err == nil {
+								elapsed := time.Since(startedAt)
+								if elapsed > decommissionTimeout {
+									beScaleLogger.Info("BE decommission timed out, force-dropping",
+										"pod", podName, "host", be.Host,
+										"elapsed", elapsed.Round(time.Second),
+										"timeout", decommissionTimeout)
+									if dropErr := m.client.DropBackend(ctx, be.Host, be.Port); dropErr != nil {
+										return nil, fmt.Errorf("failed to force-drop timed-out BE %s: %w", podName, dropErr)
+									}
+									readyForRemoval = append(readyForRemoval, podName)
+									continue
+								}
+							}
+						}
+					}
 					beScaleLogger.Info("BE decommission in progress, waiting",
 						"pod", podName, "host", be.Host, "tabletNum", be.TabletNum)
 				}
 			} else {
-				// Start decommission
+				// Start decommission and record start time
 				beScaleLogger.Info("Starting BE decommission",
 					"pod", podName, "host", be.Host, "port", be.Port)
 				if err := m.client.DecommissionBackend(ctx, be.Host, be.Port); err != nil {
 					return nil, fmt.Errorf("failed to decommission BE %s: %w", podName, err)
+				}
+				// Record decommission start time for timeout tracking
+				if scaleConfig != nil && decommissionTimeout > 0 {
+					scaleConfig.SetDecommissionStartAnnotation(podName, time.Now().UTC().Format(time.RFC3339))
 				}
 			}
 

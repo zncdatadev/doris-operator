@@ -45,6 +45,11 @@ type ScaleResult struct {
 	FEStatuses []FENodeStatus
 	// BrokerStatuses contains current Broker node statuses
 	BrokerStatuses []BrokerNodeStatus
+	// GatedReplicas maps STS names to their minimum replica count.
+	// When a component has an in-progress scale-down (e.g., BE decommission not yet complete),
+	// the corresponding STS replicas are gated to prevent premature pod deletion.
+	// The controller should patch these STS to the gated replica count after reconciliation.
+	GatedReplicas map[string]int32
 }
 
 // ReconcileScale performs scale reconciliation for all components.
@@ -54,9 +59,11 @@ func (m *ScaleManager) ReconcileScale(
 	ctx context.Context,
 	spec *dorisv1alpha1.DorisClusterSpec,
 	replicaStates map[constants.ComponentType]*ReplicaState,
+	scaleConfig ScaleConfig,
 ) (*ScaleResult, error) {
 	result := &ScaleResult{
 		CompletedRemovals: make(map[constants.ComponentType][]string),
+		GatedReplicas:     make(map[string]int32),
 	}
 
 	// Compute and execute scale actions
@@ -77,7 +84,7 @@ func (m *ScaleManager) ReconcileScale(
 			if action.IsScaleDown() {
 				switch action.Component {
 				case constants.ComponentTypeBE:
-					beResult, err := m.beManager.ScaleDown(ctx, action)
+					beResult, err := m.beManager.ScaleDown(ctx, action, scaleConfig)
 					if err != nil {
 						return nil, fmt.Errorf("BE scale-down failed: %w", err)
 					}
@@ -88,6 +95,13 @@ func (m *ScaleManager) ReconcileScale(
 					if len(beResult) < len(action.PodsToRemove) {
 						result.NeedRequeue = true
 						result.RequeueAfter = 30 * time.Second
+						// Gate: prevent STS from scaling down until decommission completes.
+						// Set gated replicas to the current count so pods are not deleted prematurely.
+						if state, ok := replicaStates[constants.ComponentTypeBE]; ok {
+							for _, stsName := range action.StSNames {
+								result.GatedReplicas[stsName] = state.CurrentReplicas
+							}
+						}
 					}
 
 				case constants.ComponentTypeFE:
