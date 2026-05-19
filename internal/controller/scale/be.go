@@ -23,9 +23,9 @@ func NewBEScaleManager(client *doris_client.DorisClient) *BEScaleManager {
 
 // ScaleDown performs scale-down for BE nodes.
 // It returns the list of pods that have been decommissioned (ready for removal).
-// When scaleConfig is non-nil, decommission timeout is enforced: if decommission exceeds
+// When policy is non-nil, decommission timeout is enforced: if decommission exceeds
 // the configured timeout, the strategy automatically falls back to force-drop.
-func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scaleConfig ScaleConfig) ([]string, error) {
+func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, policy ScaleDownPolicy, tracker DecommissionTracker) ([]string, error) {
 	if !action.IsScaleDown() {
 		return nil, nil
 	}
@@ -41,8 +41,8 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scal
 
 	var readyForRemoval []string
 	var decommissionTimeout time.Duration
-	if scaleConfig != nil {
-		decommissionTimeout = scaleConfig.GetDecommissionTimeout()
+	if policy != nil {
+		decommissionTimeout = policy.GetDecommissionTimeout()
 	}
 
 	for _, podName := range action.PodsToRemove {
@@ -51,6 +51,9 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scal
 			beScaleLogger.Info("BE node not found in Doris cluster, safe to remove",
 				"pod", podName)
 			readyForRemoval = append(readyForRemoval, podName)
+			if tracker != nil {
+				tracker.ClearStart(podName)
+			}
 			continue
 		}
 
@@ -61,10 +64,13 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scal
 					beScaleLogger.Info("BE decommission complete, ready for removal",
 						"pod", podName, "host", be.Host)
 					readyForRemoval = append(readyForRemoval, podName)
+					if tracker != nil {
+						tracker.ClearStart(podName)
+					}
 				} else {
 					// Check decommission timeout for fallback to force-drop
-					if decommissionTimeout > 0 && scaleConfig != nil {
-						if startAnno, ok := scaleConfig.GetDecommissionStartAnnotation(podName); ok {
+					if decommissionTimeout > 0 && tracker != nil {
+						if startAnno, ok := tracker.GetStart(podName); ok {
 							if startedAt, err := time.Parse(time.RFC3339, startAnno); err == nil {
 								elapsed := time.Since(startedAt)
 								if elapsed > decommissionTimeout {
@@ -76,6 +82,7 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scal
 										return nil, fmt.Errorf("failed to force-drop timed-out BE %s: %w", podName, dropErr)
 									}
 									readyForRemoval = append(readyForRemoval, podName)
+									tracker.ClearStart(podName)
 									continue
 								}
 							}
@@ -92,8 +99,8 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, scal
 					return nil, fmt.Errorf("failed to decommission BE %s: %w", podName, err)
 				}
 				// Record decommission start time for timeout tracking
-				if scaleConfig != nil && decommissionTimeout > 0 {
-					scaleConfig.SetDecommissionStartAnnotation(podName, time.Now().UTC().Format(time.RFC3339))
+				if tracker != nil && decommissionTimeout > 0 {
+					tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
 				}
 			}
 

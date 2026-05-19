@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -81,6 +80,14 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	logger.V(1).Info("DorisCluster found", "namespace", instance.Namespace, "name", instance.Name)
 
+	// Phase 0: Gate BE replicas if there are in-progress decommissions.
+	// By modifying the spec replicas in-memory before Phase 1, operator-go's STS
+	// reconciler will see the gated value and won't scale down prematurely.
+	gateApplied, restoreFn := r.gateBESpecReplicas(ctx, instance)
+	if gateApplied {
+		defer restoreFn()
+	}
+
 	resourceClient := &client.Client{
 		Client:         r.Client,
 		OwnerReference: instance,
@@ -126,17 +133,6 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
-	// Phase 2b: Gate STS replicas — prevent premature scale-down during active decommission.
-	// operator-go's STS reconciler may have already set replicas to the desired (lower) value.
-	// If scale manager detects in-progress decommission, we patch those STS replicas back
-	// to the current count until decommission completes.
-	if scaleResult != nil && len(scaleResult.GatedReplicas) > 0 {
-		if err := r.gateSTSReplicas(ctx, instance, scaleResult.GatedReplicas); err != nil {
-			logger.Error(err, "Failed to gate STS replicas", "cluster", instance.Name)
-			return ctrl.Result{}, err
-		}
-	}
-
 	// Update CR status with node information (single status patch)
 	if err := r.updateStatus(ctx, instance, scaleResult, authInitialized); err != nil {
 		logger.Error(err, "Failed to update cluster status", "cluster", instance.Name)
@@ -153,32 +149,34 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-// clusterScaleConfig implements scale.ScaleConfig by managing annotations on the DorisCluster CR.
-// It tracks BE decommission start times for timeout enforcement.
-type clusterScaleConfig struct {
+// clusterScaleDownPolicy implements scale.ScaleDownPolicy using the CR spec.
+type clusterScaleDownPolicy struct {
+	spec *dorisv1alpha1.DorisClusterSpec
+}
+
+func (p *clusterScaleDownPolicy) GetDecommissionTimeout() time.Duration {
+	return scale.GetDecommissionTimeout(p.spec)
+}
+
+// decommissionTracker implements scale.DecommissionTracker by managing annotations
+// on the DorisCluster CR to track BE decommission lifecycle.
+type decommissionTracker struct {
 	instance *dorisv1alpha1.DorisCluster
 	client   ctrlclient.Client
-	spec     *dorisv1alpha1.DorisClusterSpec
-	// pendingAnnotations stores annotation updates to be persisted
-	pendingAnnotations map[string]string
-	dirty              bool
+	// pending stores annotation mutations to be persisted: key → value (empty = delete)
+	pending map[string]string
+	dirty   bool
 }
 
-func newClusterScaleConfig(
+func newDecommissionTracker(
 	instance *dorisv1alpha1.DorisCluster,
 	client ctrlclient.Client,
-) *clusterScaleConfig {
-	return &clusterScaleConfig{
-		instance:           instance,
-		client:             client,
-		spec:               &instance.Spec,
-		pendingAnnotations: make(map[string]string),
+) *decommissionTracker {
+	return &decommissionTracker{
+		instance: instance,
+		client:   client,
+		pending:  make(map[string]string),
 	}
-}
-
-// GetDecommissionTimeout returns the configured decommission timeout duration.
-func (c *clusterScaleConfig) GetDecommissionTimeout() time.Duration {
-	return scale.GetDecommissionTimeout(c.spec)
 }
 
 // decommissionAnnoKey returns the annotation key for a pod's decommission start time.
@@ -186,33 +184,44 @@ func decommissionAnnoKey(podName string) string {
 	return fmt.Sprintf("%s/%s", scale.AnnotationDecommissionStart, podName)
 }
 
-// GetDecommissionStartAnnotation returns the recorded decommission start time for a pod.
-func (c *clusterScaleConfig) GetDecommissionStartAnnotation(podName string) (string, bool) {
+// GetStart returns the decommission start time for a pod.
+func (t *decommissionTracker) GetStart(podName string) (string, bool) {
 	key := decommissionAnnoKey(podName)
-	if val, ok := c.pendingAnnotations[key]; ok {
-		return val, ok
+	// Check pending writes first
+	if val, ok := t.pending[key]; ok {
+		return val, val != ""
 	}
-	val, ok := c.instance.Annotations[key]
+	if t.instance.Annotations == nil {
+		return "", false
+	}
+	val, ok := t.instance.Annotations[key]
 	return val, ok
 }
 
-// SetDecommissionStartAnnotation records the decommission start time for a pod.
-func (c *clusterScaleConfig) SetDecommissionStartAnnotation(podName string, timestamp string) {
-	key := decommissionAnnoKey(podName)
-	c.pendingAnnotations[key] = timestamp
-	c.dirty = true
+// RecordStart records the decommission start time for a pod.
+func (t *decommissionTracker) RecordStart(podName string, timestamp string) {
+	t.pending[decommissionAnnoKey(podName)] = timestamp
+	t.dirty = true
 }
 
-// PersistAnnotations writes any pending annotation changes to the CR.
-func (c *clusterScaleConfig) PersistAnnotations() error {
-	if !c.dirty {
+// ClearStart removes the decommission start time for a pod.
+func (t *decommissionTracker) ClearStart(podName string) {
+	key := decommissionAnnoKey(podName)
+	t.pending[key] = ""
+	t.dirty = true
+}
+
+// Persist writes all pending annotation changes to the CR.
+// Empty values in pending map are treated as deletions.
+func (t *decommissionTracker) Persist(ctx context.Context) error {
+	if !t.dirty {
 		return nil
 	}
 
 	latest := &dorisv1alpha1.DorisCluster{}
-	if err := c.client.Get(context.Background(), types.NamespacedName{
-		Name:      c.instance.Name,
-		Namespace: c.instance.Namespace,
+	if err := t.client.Get(ctx, types.NamespacedName{
+		Name:      t.instance.Name,
+		Namespace: t.instance.Namespace,
 	}, latest); err != nil {
 		return fmt.Errorf("failed to fetch latest CR for annotation update: %w", err)
 	}
@@ -221,24 +230,54 @@ func (c *clusterScaleConfig) PersistAnnotations() error {
 	if latest.Annotations == nil {
 		latest.Annotations = make(map[string]string)
 	}
-	for k, v := range c.pendingAnnotations {
-		latest.Annotations[k] = v
+
+	var persisted, deleted int
+	for k, v := range t.pending {
+		if v == "" {
+			delete(latest.Annotations, k)
+			deleted++
+		} else {
+			latest.Annotations[k] = v
+			persisted++
+		}
 	}
 
-	if err := c.client.Patch(context.Background(), latest, patch); err != nil {
+	if err := t.client.Patch(ctx, latest, patch); err != nil {
 		return fmt.Errorf("failed to persist decommission annotations: %w", err)
 	}
 
-	// Update local reference so subsequent reads in this reconcile are consistent
-	c.instance = latest
-	c.dirty = false
-	logger.Info("Persisted decommission start annotations", "count", len(c.pendingAnnotations))
+	t.instance = latest
+	t.dirty = false
+	t.pending = make(map[string]string)
+	logger.Info("Persisted decommission annotations", "recorded", persisted, "cleared", deleted)
 	return nil
+}
+
+// PendingPods returns pod names that have active decommission tracking annotations.
+// These pods are in the middle of decommission and their STS replicas should be gated.
+func (t *decommissionTracker) PendingPods() []string {
+	if t.instance.Annotations == nil {
+		return nil
+	}
+
+	prefix := scale.AnnotationDecommissionStart + "/"
+	var pods []string
+	for key := range t.instance.Annotations {
+		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			podName := key[len(prefix):]
+			// Check if this pod was cleared in pending
+			if val, ok := t.pending[decommissionAnnoKey(podName)]; ok && val == "" {
+				continue
+			}
+			pods = append(pods, podName)
+		}
+	}
+	return pods
 }
 
 // reconcileScale performs scale reconciliation by connecting to Doris FE
 // and checking if any scale-down operations are needed.
-// It returns the scale result and an optional authInitialized flag.
+// It returns the scale result and whether auth bootstrap was performed.
 func (r *DorisClusterReconciler) reconcileScale(
 	ctx context.Context,
 	instance *dorisv1alpha1.DorisCluster,
@@ -274,7 +313,6 @@ func (r *DorisClusterReconciler) reconcileScale(
 	}
 
 	// Bootstrap the admin user with root credentials if needed.
-	// This is only done once when authSecret is first configured.
 	if needBootstrap {
 		rootClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, doris_client.DefaultAdminUser, "")
 		if err != nil {
@@ -317,21 +355,142 @@ func (r *DorisClusterReconciler) reconcileScale(
 		return nil, false, fmt.Errorf("failed to fetch replica states: %w", err)
 	}
 
-	// Create scale config for decommission timeout tracking
-	scaleConfig := newClusterScaleConfig(instance, r.Client)
+	// Create policy and tracker for decommission lifecycle management
+	policy := &clusterScaleDownPolicy{spec: &instance.Spec}
+	tracker := newDecommissionTracker(instance, r.Client)
 
-	result, err := scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates, scaleConfig)
+	result, err := scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates, policy, tracker)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// Persist decommission start time annotations if any were set
-	if err := scaleConfig.PersistAnnotations(); err != nil {
+	// Persist decommission annotation changes (records + clears)
+	if err := tracker.Persist(ctx); err != nil {
 		logger.Error(err, "Failed to persist decommission annotations", "cluster", instance.Name)
-		// Non-fatal: decommission timeout tracking will be approximate
+		// Non-fatal: decommission timeout tracking will be approximate until next persistence
 	}
 
 	return result, needBootstrap, nil
+}
+
+// gateBESpecReplicas checks for in-progress BE decommissions (via CR annotations)
+// and gates the BE spec replicas to the current STS replica count. This prevents
+// operator-go's STS reconciler from scaling down pods during active decommission.
+//
+// It returns whether a gate was applied and a restore function that must be called
+// (typically via defer) to restore the original spec values.
+//
+// This is the "pre-reconcile interception" approach: by modifying the spec in-memory
+// before Phase 1, the STS builder sees the gated replicas and won't create an update
+// that would trigger premature pod deletion.
+func (r *DorisClusterReconciler) gateBESpecReplicas(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (bool, func()) {
+	if instance.Spec.Backend == nil {
+		return false, func() {}
+	}
+
+	tracker := newDecommissionTracker(instance, r.Client)
+	pendingPods := tracker.PendingPods()
+	if len(pendingPods) == 0 {
+		return false, func() {}
+	}
+
+	// Fetch current BE StatefulSets to get actual running replica count
+	stsList := &appsv1.StatefulSetList{}
+	labelSelector := ctrlclient.MatchingLabels{
+		"app.kubernetes.io/instance":  instance.Name,
+		"app.kubernetes.io/component": string(constants.ComponentTypeBE),
+	}
+	if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+		logger.Error(err, "Failed to list BE StatefulSets for gating", "cluster", instance.Name)
+		return false, func() {}
+	}
+
+	if len(stsList.Items) == 0 {
+		return false, func() {}
+	}
+
+	// Sum up current running replicas across all BE STSs
+	var currentReplicas int32
+	for _, sts := range stsList.Items {
+		currentReplicas += sts.Status.Replicas
+	}
+
+	// Check if gating is actually needed (current > desired)
+	desired := scale.GetEffectiveReplicas(instance.Spec.Backend)
+	if currentReplicas <= desired {
+		return false, func() {}
+	}
+
+	logger.Info("Gating BE spec replicas for in-progress decommission",
+		"cluster", instance.Name,
+		"desired", desired,
+		"current", currentReplicas,
+		"pendingPods", pendingPods)
+
+	// For single roleGroup: override replicas directly
+	// For multi roleGroup: gate proportionally across groups (best-effort)
+	if len(instance.Spec.Backend.RoleGroups) == 1 {
+		for name, rg := range instance.Spec.Backend.RoleGroups {
+			original := rg.Replicas
+			rg.Replicas = &currentReplicas
+			return true, func() {
+				logger.V(1).Info("Restoring BE spec replicas after gate",
+					"cluster", instance.Name, "roleGroup", name,
+					"restored", original, "gated", currentReplicas)
+				rg.Replicas = original
+			}
+		}
+	}
+
+	// Multi-roleGroup: gate proportionally by distributing the current total
+	// across groups weighted by their desired replicas
+	totalDesired := desired
+	if totalDesired == 0 {
+		return false, func() {}
+	}
+
+	originals := make(map[string]int32)
+	remaining := currentReplicas
+	groupNames := make([]string, 0, len(instance.Spec.Backend.RoleGroups))
+	for name := range instance.Spec.Backend.RoleGroups {
+		groupNames = append(groupNames, name)
+	}
+
+	for i, name := range groupNames {
+		rg := instance.Spec.Backend.RoleGroups[name]
+		original := int32(0)
+		if rg.Replicas != nil {
+			original = *rg.Replicas
+		}
+		originals[name] = original
+
+		groupDesired := original
+
+		var gated int32
+		if i == len(groupNames)-1 {
+			// Last group gets the remainder to avoid rounding drift
+			gated = remaining
+		} else {
+			gated = currentReplicas * groupDesired / totalDesired
+			if gated < 1 {
+				gated = 1
+			}
+		}
+		remaining -= gated
+		rg.Replicas = &gated
+		instance.Spec.Backend.RoleGroups[name] = rg
+	}
+
+	return true, func() {
+		for name, original := range originals {
+			rg := instance.Spec.Backend.RoleGroups[name]
+			rg.Replicas = &original
+			instance.Spec.Backend.RoleGroups[name] = rg
+		}
+	}
 }
 
 // fetchReplicaStates builds replica states for all cluster components
@@ -362,7 +521,7 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 			rs.CurrentReplicas += sts.Status.Replicas
 			rs.ReadyReplicas += sts.Status.ReadyReplicas
 			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts)...)
-			rs.StSNames = append(rs.StSNames, sts.Name)
+			rs.StatefulSetNames = append(rs.StatefulSetNames, sts.Name)
 		}
 		states[ct] = rs
 	}
@@ -370,50 +529,8 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 	return states, nil
 }
 
-// gateSTSReplicas patches StatefulSets to hold their replica count at the gated value,
-// preventing operator-go's STS reconciler from scaling down pods while decommission is active.
-// This is the "post-reconcile correction" that implements the scale-down safety gate.
-func (r *DorisClusterReconciler) gateSTSReplicas(
-	ctx context.Context,
-	instance *dorisv1alpha1.DorisCluster,
-	gatedReplicas map[string]int32,
-) error {
-	for stsName, minReplicas := range gatedReplicas {
-		sts := &appsv1.StatefulSet{}
-		if err := r.Get(ctx, types.NamespacedName{
-			Name:      stsName,
-			Namespace: instance.Namespace,
-		}, sts); err != nil {
-			if ctrlclient.IgnoreNotFound(err) == nil {
-				logger.V(1).Info("Gated STS not found, skipping", "sts", stsName)
-				continue
-			}
-			return fmt.Errorf("failed to get gated STS %s: %w", stsName, err)
-		}
-
-		currentReplicas := int32(1)
-		if sts.Spec.Replicas != nil {
-			currentReplicas = *sts.Spec.Replicas
-		}
-
-		if currentReplicas < minReplicas {
-			logger.Info("Gating STS replicas to prevent premature scale-down",
-				"sts", stsName,
-				"current", currentReplicas,
-				"gated", minReplicas)
-			patch := ctrlclient.MergeFrom(sts.DeepCopy())
-			sts.Spec.Replicas = ptr.To(minReplicas)
-			if err := r.Patch(ctx, sts, patch); err != nil {
-				return fmt.Errorf("failed to gate STS %s replicas to %d: %w", stsName, minReplicas, err)
-			}
-		}
-	}
-	return nil
-}
-
 // updateStatus patches the DorisCluster status in a single patch operation.
 // When scaleResult is nil (e.g., BE not yet alive), it falls back to pod-list-based status.
-// When authBootstrap is true, it also sets AuthInitialized = true.
 func (r *DorisClusterReconciler) updateStatus(
 	ctx context.Context,
 	instance *dorisv1alpha1.DorisCluster,
@@ -455,7 +572,6 @@ func (r *DorisClusterReconciler) updateStatus(
 	if result != nil {
 		scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses, result.BrokerStatuses)
 
-		// Fallback to pod listing for components where SQL query failed (nil statuses)
 		if result.BEStatuses == nil {
 			if nodes, err := buildPodNodeList(constants.ComponentTypeBE); err != nil {
 				return err
@@ -478,7 +594,6 @@ func (r *DorisClusterReconciler) updateStatus(
 			}
 		}
 	} else {
-		// Full fallback: build status from pod listings for all components
 		for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
 			nodes, err := buildPodNodeList(ct)
 			if err != nil {

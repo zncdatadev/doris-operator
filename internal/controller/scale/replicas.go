@@ -21,9 +21,9 @@ const (
 	// StrategyDropObserver is the default FE scale-down strategy
 	StrategyDropObserver = "drop-observer"
 
-	// AnnotationDecommissionStart is the annotation key on the DorisCluster CR
-	// that records when BE decommission started (RFC3339 timestamp).
-	// Format: "sts-name:timestamp,sts-name:timestamp"
+	// AnnotationDecommissionStart is the annotation key prefix on the DorisCluster CR
+	// used to track BE decommission start times. Each pod gets its own annotation:
+	//   doris.kubedoop.dev/decommission-start/<pod-name> = <RFC3339 timestamp>
 	AnnotationDecommissionStart = "doris.kubedoop.dev/decommission-start"
 )
 
@@ -39,9 +39,9 @@ type ScaleAction struct {
 	PodsToRemove []string
 	// Strategy is the scale-down strategy for this component
 	Strategy string
-	// StSNames lists the StatefulSet names involved in this scale action.
+	// StatefulSetNames lists the StatefulSet names involved in this scale action.
 	// Used for STS replica gating during decommission.
-	StSNames []string
+	StatefulSetNames []string
 }
 
 // IsScaleDown returns true if this is a scale-down action
@@ -66,8 +66,8 @@ type ReplicaState struct {
 	ReadyReplicas int32
 	// Pod names currently running (sorted by ordinal)
 	PodNames []string
-	// StSNames lists the StatefulSet names for this component.
-	StSNames []string
+	// StatefulSetNames lists the StatefulSet names for this component.
+	StatefulSetNames []string
 }
 
 // GetEffectiveReplicas resolves the effective replica count for a component.
@@ -121,11 +121,11 @@ func ComputeScaleActions(
 		desired := GetEffectiveReplicas(comp.roleSpec)
 
 		action := ScaleAction{
-			Component:       comp.ct,
-			CurrentReplicas: state.CurrentReplicas,
-			DesiredReplicas: desired,
-			Strategy:        comp.strategy,
-			StSNames:        state.StSNames,
+			Component:        comp.ct,
+			CurrentReplicas:  state.CurrentReplicas,
+			DesiredReplicas:  desired,
+			Strategy:         comp.strategy,
+			StatefulSetNames: state.StatefulSetNames,
 		}
 
 		if action.IsScaleDown() {

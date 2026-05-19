@@ -37,19 +37,12 @@ type ScaleResult struct {
 	NeedRequeue bool
 	// RequeueAfter is the duration to wait before requeuing
 	RequeueAfter time.Duration
-	// CompletedRemovals lists pods that are ready for StatefulSet scale-down
-	CompletedRemovals map[constants.ComponentType][]string
 	// BEStatuses contains current BE node statuses
 	BEStatuses []BENodeStatus
 	// FEStatuses contains current FE node statuses
 	FEStatuses []FENodeStatus
 	// BrokerStatuses contains current Broker node statuses
 	BrokerStatuses []BrokerNodeStatus
-	// GatedReplicas maps STS names to their minimum replica count.
-	// When a component has an in-progress scale-down (e.g., BE decommission not yet complete),
-	// the corresponding STS replicas are gated to prevent premature pod deletion.
-	// The controller should patch these STS to the gated replica count after reconciliation.
-	GatedReplicas map[string]int32
 }
 
 // ReconcileScale performs scale reconciliation for all components.
@@ -59,12 +52,10 @@ func (m *ScaleManager) ReconcileScale(
 	ctx context.Context,
 	spec *dorisv1alpha1.DorisClusterSpec,
 	replicaStates map[constants.ComponentType]*ReplicaState,
-	scaleConfig ScaleConfig,
+	policy ScaleDownPolicy,
+	tracker DecommissionTracker,
 ) (*ScaleResult, error) {
-	result := &ScaleResult{
-		CompletedRemovals: make(map[constants.ComponentType][]string),
-		GatedReplicas:     make(map[string]int32),
-	}
+	result := &ScaleResult{}
 
 	// Compute and execute scale actions
 	actions := ComputeScaleActions(spec, replicaStates)
@@ -84,24 +75,14 @@ func (m *ScaleManager) ReconcileScale(
 			if action.IsScaleDown() {
 				switch action.Component {
 				case constants.ComponentTypeBE:
-					beResult, err := m.beManager.ScaleDown(ctx, action, scaleConfig)
+					beResult, err := m.beManager.ScaleDown(ctx, action, policy, tracker)
 					if err != nil {
 						return nil, fmt.Errorf("BE scale-down failed: %w", err)
-					}
-					if len(beResult) > 0 {
-						result.CompletedRemovals[constants.ComponentTypeBE] = beResult
 					}
 					// Requeue if not all pods are ready for removal
 					if len(beResult) < len(action.PodsToRemove) {
 						result.NeedRequeue = true
 						result.RequeueAfter = 30 * time.Second
-						// Gate: prevent STS from scaling down until decommission completes.
-						// Set gated replicas to the current count so pods are not deleted prematurely.
-						if state, ok := replicaStates[constants.ComponentTypeBE]; ok {
-							for _, stsName := range action.StSNames {
-								result.GatedReplicas[stsName] = state.CurrentReplicas
-							}
-						}
 					}
 
 				case constants.ComponentTypeFE:
@@ -109,8 +90,9 @@ func (m *ScaleManager) ReconcileScale(
 					if err != nil {
 						return nil, fmt.Errorf("FE scale-down failed: %w", err)
 					}
-					if len(feResult) > 0 {
-						result.CompletedRemovals[constants.ComponentTypeFE] = feResult
+					if len(feResult) < len(action.PodsToRemove) {
+						result.NeedRequeue = true
+						result.RequeueAfter = 30 * time.Second
 					}
 
 				default:
