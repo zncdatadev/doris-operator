@@ -1,9 +1,9 @@
-<!-- Generated: 2026-05-14 | Updated: 2026-05-14 -->
+<!-- Generated: 2026-05-19 | Updated: 2026-05-19 -->
 
 # doris-operator
 
 ## Purpose
-Manages Apache Doris deployments on Kubernetes. Handles creation, configuration, and lifecycle management of Doris clusters in storage-compute-integrated mode with FE (Frontend), BE (Backend), and Broker components. Supports LDAP authentication, Vector logging, and Prometheus metrics.
+Manages Apache Doris deployments on Kubernetes. Handles creation, configuration, and lifecycle management of Doris clusters in storage-compute-integrated mode with FE (Frontend), BE (Backend), and Broker components. Supports LDAP authentication, Vector logging, Prometheus metrics, and safe scale-up/scale-down with decommission gating.
 
 ## Key Files
 | File | Description |
@@ -26,6 +26,8 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 | `internal/controller/broker/` | Broker role reconciler (StatefulSet, ConfigMap, Service) |
 | `internal/controller/common/` | Shared resources (configmap, statefulset, service, image helper) |
 | `internal/controller/constants/` | Component constants (ports, images, paths, labels) |
+| `internal/controller/scale/` | Scale management (BE decommission/force-drop, FE drop-observer, STS gate, timeout) |
+| `internal/controller/doris_client/` | Doris MySQL protocol client for cluster management SQL operations |
 | `test/e2e/` | End-to-end test suites (chainsaw) |
 
 ## For AI Agents
@@ -58,7 +60,12 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 - Each role creates: ConfigMap (component config) + Internal Service (headless) + Access Service + StatefulSet + Metrics Service
 - Shared logic in `common/`: `BaseDorisRoleReconciler`, `RegisterStandardResources`, `StatefulSetBuilder`
 - Broker is stateless (no PVC, no init container), FE has PVC for metadata, BE has PVC for storage + init container for sysctl
-- CRD spec uses independent fields: `spec.frontEnd`, `spec.backEnd`, `spec.broker` (type-safe, backward compatible)
+- CRD spec uses independent fields: `spec.frontend`, `spec.backend`, `spec.broker` (type-safe, backward compatible)
+- Scale management: `internal/controller/scale/` handles safe scale-down via Doris MySQL protocol
+  - STS replica gating: prevents premature pod deletion during active BE decommission
+  - Decommission timeout: automatic fallback to force-drop after configurable timeout (default 2h)
+  - Decommission start time tracked via CR annotations (`doris.kubedoop.dev/decommission-start`)
+  - FE scale-down limited to OBSERVER nodes (follower nodes are protected)
 
 ## Dependencies
 

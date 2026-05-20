@@ -2,6 +2,7 @@ package scale
 
 import (
 	"fmt"
+	"time"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
@@ -11,7 +12,7 @@ import (
 
 const (
 	// defaultDecommissionTimeout is the default timeout for BE decommission
-	defaultDecommissionTimeout = "2h"
+	defaultDecommissionTimeout = 2 * time.Hour
 
 	// StrategyDecommission is the default BE scale-down strategy
 	StrategyDecommission = "decommission"
@@ -19,6 +20,11 @@ const (
 	StrategyForceDrop = "force-drop"
 	// StrategyDropObserver is the default FE scale-down strategy
 	StrategyDropObserver = "drop-observer"
+
+	// AnnotationDecommissionStart is the annotation key prefix on the DorisCluster CR
+	// used to track BE decommission start times. Each pod gets its own annotation:
+	//   doris.kubedoop.dev/decommission-start/<pod-name> = <RFC3339 timestamp>
+	AnnotationDecommissionStart = "doris.kubedoop.dev/decommission-start"
 )
 
 // ScaleAction represents a scale operation to perform
@@ -33,6 +39,9 @@ type ScaleAction struct {
 	PodsToRemove []string
 	// Strategy is the scale-down strategy for this component
 	Strategy string
+	// StatefulSetNames lists the StatefulSet names involved in this scale action.
+	// Used for STS replica gating during decommission.
+	StatefulSetNames []string
 }
 
 // IsScaleDown returns true if this is a scale-down action
@@ -49,7 +58,7 @@ func (a *ScaleAction) IsScaleUp() bool {
 type ReplicaState struct {
 	// Component type
 	Component constants.ComponentType
-	// DesiredReplicas from StatefulSet spec (what the STS is targeting)
+	// SpecReplicas from StatefulSet spec (what the STS is targeting)
 	SpecReplicas int32
 	// CurrentReplicas from StatefulSet status (actual number of pods currently running)
 	CurrentReplicas int32
@@ -57,6 +66,8 @@ type ReplicaState struct {
 	ReadyReplicas int32
 	// Pod names currently running (sorted by ordinal)
 	PodNames []string
+	// StatefulSetNames lists the StatefulSet names for this component.
+	StatefulSetNames []string
 }
 
 // GetEffectiveReplicas resolves the effective replica count for a component.
@@ -110,10 +121,11 @@ func ComputeScaleActions(
 		desired := GetEffectiveReplicas(comp.roleSpec)
 
 		action := ScaleAction{
-			Component:       comp.ct,
-			CurrentReplicas: state.CurrentReplicas,
-			DesiredReplicas: desired,
-			Strategy:        comp.strategy,
+			Component:        comp.ct,
+			CurrentReplicas:  state.CurrentReplicas,
+			DesiredReplicas:  desired,
+			Strategy:         comp.strategy,
+			StatefulSetNames: state.StatefulSetNames,
 		}
 
 		if action.IsScaleDown() {
@@ -167,11 +179,10 @@ func getFEStrategy(spec *dorisv1alpha1.DorisClusterSpec) string {
 }
 
 // GetDecommissionTimeout returns the decommission timeout duration.
-// TODO: Implement timeout tracking in BE scale-down to automatically fallback to force-drop.
-func GetDecommissionTimeout(spec *dorisv1alpha1.DorisClusterSpec) string {
+func GetDecommissionTimeout(spec *dorisv1alpha1.DorisClusterSpec) time.Duration {
 	if spec.ClusterConfig != nil && spec.ClusterConfig.ScaleDownPolicy != nil &&
 		spec.ClusterConfig.ScaleDownPolicy.DecommissionTimeout != nil {
-		return spec.ClusterConfig.ScaleDownPolicy.DecommissionTimeout.Duration.String()
+		return spec.ClusterConfig.ScaleDownPolicy.DecommissionTimeout.Duration
 	}
 	return defaultDecommissionTimeout
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -36,6 +37,7 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/client"
+	opgpconstants "github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 )
 
@@ -79,6 +81,14 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	logger.V(1).Info("DorisCluster found", "namespace", instance.Namespace, "name", instance.Name)
 
+	// Phase 0: Gate BE replicas if there are in-progress decommissions.
+	// By modifying the spec replicas in-memory before Phase 1, operator-go's STS
+	// reconciler will see the gated value and won't scale down prematurely.
+	gateApplied, restoreFn := r.gateBESpecReplicas(ctx, instance)
+	if gateApplied {
+		defer restoreFn()
+	}
+
 	resourceClient := &client.Client{
 		Client:         r.Client,
 		OwnerReference: instance,
@@ -118,7 +128,6 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Phase 2: Scale management (after resources are ready)
-	// TODO: Gate StatefulSet replica decrease behind scale manager to ensure safe scale-down
 	scaleResult, authInitialized, err := r.reconcileScale(ctx, instance)
 	if err != nil {
 		logger.Error(err, "Scale reconciliation failed", "cluster", instance.Name)
@@ -141,9 +150,137 @@ func (r *DorisClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
+// clusterScaleDownPolicy implements scale.ScaleDownPolicy using the CR spec.
+type clusterScaleDownPolicy struct {
+	spec *dorisv1alpha1.DorisClusterSpec
+}
+
+func (p *clusterScaleDownPolicy) GetDecommissionTimeout() time.Duration {
+	return scale.GetDecommissionTimeout(p.spec)
+}
+
+// decommissionTracker implements scale.DecommissionTracker by managing annotations
+// on the DorisCluster CR to track BE decommission lifecycle.
+type decommissionTracker struct {
+	instance *dorisv1alpha1.DorisCluster
+	client   ctrlclient.Client
+	// pending stores annotation mutations to be persisted: key → value (empty = delete)
+	pending map[string]string
+	dirty   bool
+}
+
+func newDecommissionTracker(
+	instance *dorisv1alpha1.DorisCluster,
+	client ctrlclient.Client,
+) *decommissionTracker {
+	return &decommissionTracker{
+		instance: instance,
+		client:   client,
+		pending:  make(map[string]string),
+	}
+}
+
+// decommissionAnnoKey returns the annotation key for a pod's decommission start time.
+func decommissionAnnoKey(podName string) string {
+	return fmt.Sprintf("%s/%s", scale.AnnotationDecommissionStart, podName)
+}
+
+// GetStart returns the decommission start time for a pod.
+func (t *decommissionTracker) GetStart(podName string) (string, bool) {
+	key := decommissionAnnoKey(podName)
+	// Check pending writes first
+	if val, ok := t.pending[key]; ok {
+		return val, val != ""
+	}
+	if t.instance.Annotations == nil {
+		return "", false
+	}
+	val, ok := t.instance.Annotations[key]
+	return val, ok
+}
+
+// RecordStart records the decommission start time for a pod.
+func (t *decommissionTracker) RecordStart(podName string, timestamp string) {
+	t.pending[decommissionAnnoKey(podName)] = timestamp
+	t.dirty = true
+}
+
+// ClearStart removes the decommission start time for a pod.
+func (t *decommissionTracker) ClearStart(podName string) {
+	key := decommissionAnnoKey(podName)
+	t.pending[key] = ""
+	t.dirty = true
+}
+
+// Persist writes all pending annotation changes to the CR.
+// Empty values in pending map are treated as deletions.
+func (t *decommissionTracker) Persist(ctx context.Context) error {
+	if !t.dirty {
+		return nil
+	}
+
+	latest := &dorisv1alpha1.DorisCluster{}
+	if err := t.client.Get(ctx, types.NamespacedName{
+		Name:      t.instance.Name,
+		Namespace: t.instance.Namespace,
+	}, latest); err != nil {
+		return fmt.Errorf("failed to fetch latest CR for annotation update: %w", err)
+	}
+
+	patch := ctrlclient.MergeFrom(latest.DeepCopy())
+	if latest.Annotations == nil {
+		latest.Annotations = make(map[string]string)
+	}
+
+	var persisted, deleted int
+	for k, v := range t.pending {
+		if v == "" {
+			delete(latest.Annotations, k)
+			deleted++
+		} else {
+			latest.Annotations[k] = v
+			persisted++
+		}
+	}
+
+	if err := t.client.Patch(ctx, latest, patch); err != nil {
+		return fmt.Errorf("failed to persist decommission annotations: %w", err)
+	}
+
+	t.instance = latest
+	t.dirty = false
+	t.pending = make(map[string]string)
+	logger.Info("Persisted decommission annotations", "recorded", persisted, "cleared", deleted)
+	return nil
+}
+
+// PendingPods returns pod names that have active (non-cleared) decommission tracking.
+// These pods are in the middle of decommission and their STS replicas should be gated.
+// Results are sorted for deterministic behavior.
+func (t *decommissionTracker) PendingPods() []string {
+	if t.instance.Annotations == nil {
+		return nil
+	}
+
+	prefix := scale.AnnotationDecommissionStart + "/"
+	var pods []string
+	for key := range t.instance.Annotations {
+		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			podName := key[len(prefix):]
+			// Check if this pod was cleared in pending
+			if val, ok := t.pending[decommissionAnnoKey(podName)]; ok && val == "" {
+				continue
+			}
+			pods = append(pods, podName)
+		}
+	}
+	sort.Strings(pods)
+	return pods
+}
+
 // reconcileScale performs scale reconciliation by connecting to Doris FE
 // and checking if any scale-down operations are needed.
-// It returns the scale result and an optional authInitialized flag.
+// It returns the scale result and whether auth bootstrap was performed.
 func (r *DorisClusterReconciler) reconcileScale(
 	ctx context.Context,
 	instance *dorisv1alpha1.DorisCluster,
@@ -179,7 +316,6 @@ func (r *DorisClusterReconciler) reconcileScale(
 	}
 
 	// Bootstrap the admin user with root credentials if needed.
-	// This is only done once when authSecret is first configured.
 	if needBootstrap {
 		rootClient, err := doris_client.NewDorisClient(feHost, constants.FEQueryPort, doris_client.DefaultAdminUser, "")
 		if err != nil {
@@ -222,12 +358,155 @@ func (r *DorisClusterReconciler) reconcileScale(
 		return nil, false, fmt.Errorf("failed to fetch replica states: %w", err)
 	}
 
-	result, err := scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates)
+	// Create policy and tracker for decommission lifecycle management
+	policy := &clusterScaleDownPolicy{spec: &instance.Spec}
+	tracker := newDecommissionTracker(instance, r.Client)
+
+	result, err := scaleMgr.ReconcileScale(ctx, &instance.Spec, replicaStates, policy, tracker)
 	if err != nil {
 		return nil, false, err
 	}
 
+	// Persist decommission annotation changes (records + clears)
+	if err := tracker.Persist(ctx); err != nil {
+		logger.Error(err, "Failed to persist decommission annotations", "cluster", instance.Name)
+		// Non-fatal: decommission timeout tracking will be approximate until next persistence
+	}
+
 	return result, needBootstrap, nil
+}
+
+// gateBESpecReplicas checks for in-progress BE decommissions (via CR annotations)
+// and gates the BE spec replicas to the current STS replica count. This prevents
+// operator-go's STS reconciler from scaling down pods during active decommission.
+//
+// It returns whether a gate was applied and a restore function that must be called
+// (typically via defer) to restore the original spec values.
+//
+// This is the "pre-reconcile interception" approach: by modifying the spec in-memory
+// before Phase 1, the STS builder sees the gated replicas and won't create an update
+// that would trigger premature pod deletion.
+func (r *DorisClusterReconciler) gateBESpecReplicas(
+	ctx context.Context,
+	instance *dorisv1alpha1.DorisCluster,
+) (bool, func()) {
+	if instance.Spec.Backend == nil {
+		return false, func() {}
+	}
+
+	// Gate if there are in-progress decommissions (from CR annotations).
+	// Once Phase 2 records decommission-start annotations, subsequent reconciles
+	// will gate here to prevent STS from scaling down before decommission completes.
+	tracker := newDecommissionTracker(instance, r.Client)
+	hasPending := len(tracker.PendingPods()) > 0
+	if !hasPending {
+		return false, func() {}
+	}
+
+	// Fetch current BE StatefulSets to detect scale-down intent
+	stsList := &appsv1.StatefulSetList{}
+	labelSelector := ctrlclient.MatchingLabels{
+		opgpconstants.LabelKubernetesInstance:  instance.Name,
+		opgpconstants.LabelKubernetesComponent: string(constants.ComponentTypeBE),
+	}
+	if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
+		logger.Error(err, "Failed to list BE StatefulSets for gating", "cluster", instance.Name)
+		return false, func() {}
+	}
+
+	if len(stsList.Items) == 0 {
+		return false, func() {}
+	}
+
+	// Sum up current running replicas across all BE STSs
+	var currentReplicas int32
+	for _, sts := range stsList.Items {
+		currentReplicas += sts.Status.Replicas
+	}
+
+	// Check if gating is actually needed (current > desired)
+	desired := scale.GetEffectiveReplicas(instance.Spec.Backend)
+	if currentReplicas <= desired {
+		return false, func() {}
+	}
+
+	logger.Info("Gating BE spec replicas for in-progress decommission",
+		"cluster", instance.Name,
+		"desired", desired,
+		"current", currentReplicas,
+		"pendingPods", tracker.PendingPods())
+
+	// For single roleGroup: override replicas directly
+	if len(instance.Spec.Backend.RoleGroups) == 1 {
+		for name := range instance.Spec.Backend.RoleGroups {
+			rg := instance.Spec.Backend.RoleGroups[name]
+			original := rg.Replicas
+
+			// Allocate a stable variable for the gated value (not a loop-local)
+			gated := currentReplicas
+			rg.Replicas = &gated
+			instance.Spec.Backend.RoleGroups[name] = rg
+
+			return true, func() {
+				logger.V(1).Info("Restoring BE spec replicas after gate",
+					"cluster", instance.Name, "roleGroup", name,
+					"restored", original, "gated", gated)
+				rg := instance.Spec.Backend.RoleGroups[name]
+				rg.Replicas = original
+				instance.Spec.Backend.RoleGroups[name] = rg
+			}
+		}
+	}
+
+	// Multi-roleGroup: gate proportionally by distributing the current total
+	// across groups weighted by their desired replicas.
+	totalDesired := desired
+	if totalDesired == 0 {
+		return false, func() {}
+	}
+
+	originals := make(map[string]int32)
+	remaining := currentReplicas
+	groupNames := make([]string, 0, len(instance.Spec.Backend.RoleGroups))
+	for name := range instance.Spec.Backend.RoleGroups {
+		groupNames = append(groupNames, name)
+	}
+
+	for i, name := range groupNames {
+		rg := instance.Spec.Backend.RoleGroups[name]
+		original := int32(0)
+		if rg.Replicas != nil {
+			original = *rg.Replicas
+		}
+		originals[name] = original
+
+		groupDesired := original
+
+		var gated int32
+		if i == len(groupNames)-1 {
+			gated = remaining
+		} else {
+			gated = currentReplicas * groupDesired / totalDesired
+			if gated < 1 {
+				gated = 1
+			}
+		}
+		remaining -= gated
+
+		// Allocate stable per-group variable for gated value
+		gatedCopy := gated
+		rg.Replicas = &gatedCopy
+		instance.Spec.Backend.RoleGroups[name] = rg
+	}
+
+	return true, func() {
+		for name, original := range originals {
+			rg := instance.Spec.Backend.RoleGroups[name]
+			restoreCopy := original
+			rg.Replicas = &restoreCopy
+			instance.Spec.Backend.RoleGroups[name] = rg
+		}
+	}
 }
 
 // fetchReplicaStates builds replica states for all cluster components
@@ -241,8 +520,8 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 	for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
 		stsList := &appsv1.StatefulSetList{}
 		labelSelector := ctrlclient.MatchingLabels{
-			"app.kubernetes.io/instance":  instance.Name,
-			"app.kubernetes.io/component": string(ct),
+			opgpconstants.LabelKubernetesInstance:  instance.Name,
+			opgpconstants.LabelKubernetesComponent: string(ct),
 		}
 		if err := r.List(ctx, stsList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
 			return nil, fmt.Errorf("failed to list StatefulSets for %s: %w", ct, err)
@@ -258,6 +537,7 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 			rs.CurrentReplicas += sts.Status.Replicas
 			rs.ReadyReplicas += sts.Status.ReadyReplicas
 			rs.PodNames = append(rs.PodNames, scale.GetStatefulSetPodNames(&sts)...)
+			rs.StatefulSetNames = append(rs.StatefulSetNames, sts.Name)
 		}
 		states[ct] = rs
 	}
@@ -267,7 +547,6 @@ func (r *DorisClusterReconciler) fetchReplicaStates(
 
 // updateStatus patches the DorisCluster status in a single patch operation.
 // When scaleResult is nil (e.g., BE not yet alive), it falls back to pod-list-based status.
-// When authBootstrap is true, it also sets AuthInitialized = true.
 func (r *DorisClusterReconciler) updateStatus(
 	ctx context.Context,
 	instance *dorisv1alpha1.DorisCluster,
@@ -290,8 +569,8 @@ func (r *DorisClusterReconciler) updateStatus(
 	buildPodNodeList := func(ct constants.ComponentType) ([]dorisv1alpha1.NodeStatus, error) {
 		podList := &corev1.PodList{}
 		labelSelector := ctrlclient.MatchingLabels{
-			"app.kubernetes.io/instance":  instance.Name,
-			"app.kubernetes.io/component": string(ct),
+			opgpconstants.LabelKubernetesInstance:  instance.Name,
+			opgpconstants.LabelKubernetesComponent: string(ct),
 		}
 		if err := r.List(ctx, podList, labelSelector, ctrlclient.InNamespace(instance.Namespace)); err != nil {
 			return nil, err
@@ -309,7 +588,6 @@ func (r *DorisClusterReconciler) updateStatus(
 	if result != nil {
 		scale.UpdateClusterStatus(&latest.Status, result.BEStatuses, result.FEStatuses, result.BrokerStatuses)
 
-		// Fallback to pod listing for components where SQL query failed (nil statuses)
 		if result.BEStatuses == nil {
 			if nodes, err := buildPodNodeList(constants.ComponentTypeBE); err != nil {
 				return err
@@ -332,7 +610,6 @@ func (r *DorisClusterReconciler) updateStatus(
 			}
 		}
 	} else {
-		// Full fallback: build status from pod listings for all components
 		for _, ct := range []constants.ComponentType{constants.ComponentTypeFE, constants.ComponentTypeBE, constants.ComponentTypeBroker} {
 			nodes, err := buildPodNodeList(ct)
 			if err != nil {

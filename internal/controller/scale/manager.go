@@ -37,8 +37,6 @@ type ScaleResult struct {
 	NeedRequeue bool
 	// RequeueAfter is the duration to wait before requeuing
 	RequeueAfter time.Duration
-	// CompletedRemovals lists pods that are ready for StatefulSet scale-down
-	CompletedRemovals map[constants.ComponentType][]string
 	// BEStatuses contains current BE node statuses
 	BEStatuses []BENodeStatus
 	// FEStatuses contains current FE node statuses
@@ -54,10 +52,10 @@ func (m *ScaleManager) ReconcileScale(
 	ctx context.Context,
 	spec *dorisv1alpha1.DorisClusterSpec,
 	replicaStates map[constants.ComponentType]*ReplicaState,
+	policy ScaleDownPolicy,
+	tracker DecommissionTracker,
 ) (*ScaleResult, error) {
-	result := &ScaleResult{
-		CompletedRemovals: make(map[constants.ComponentType][]string),
-	}
+	result := &ScaleResult{}
 
 	// Compute and execute scale actions
 	actions := ComputeScaleActions(spec, replicaStates)
@@ -77,12 +75,9 @@ func (m *ScaleManager) ReconcileScale(
 			if action.IsScaleDown() {
 				switch action.Component {
 				case constants.ComponentTypeBE:
-					beResult, err := m.beManager.ScaleDown(ctx, action)
+					beResult, err := m.beManager.ScaleDown(ctx, action, policy, tracker)
 					if err != nil {
 						return nil, fmt.Errorf("BE scale-down failed: %w", err)
-					}
-					if len(beResult) > 0 {
-						result.CompletedRemovals[constants.ComponentTypeBE] = beResult
 					}
 					// Requeue if not all pods are ready for removal
 					if len(beResult) < len(action.PodsToRemove) {
@@ -95,8 +90,9 @@ func (m *ScaleManager) ReconcileScale(
 					if err != nil {
 						return nil, fmt.Errorf("FE scale-down failed: %w", err)
 					}
-					if len(feResult) > 0 {
-						result.CompletedRemovals[constants.ComponentTypeFE] = feResult
+					if len(feResult) < len(action.PodsToRemove) {
+						result.NeedRequeue = true
+						result.RequeueAfter = 30 * time.Second
 					}
 
 				default:
