@@ -238,10 +238,7 @@ func NewBeStatefulSetReconciler(
 	img := image
 
 	if img == nil {
-		// Get BE component image using common package function
-		beImage := common.GetComponentImage(dorisCluster.Spec.Image, constants.ComponentTypeBE)
-		pullPolicy := common.GetPullPolicy(dorisCluster.Spec.Image)
-		img = &opgoutil.Image{Custom: beImage, PullPolicy: pullPolicy}
+		img = common.GetImage(dorisCluster.Spec.Image, constants.ComponentTypeBE)
 	}
 
 	commonBuilder := common.NewStatefulSetBuilder(

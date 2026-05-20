@@ -6,14 +6,12 @@ import (
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/be"
 	"github.com/zncdatadev/doris-operator/internal/controller/broker"
-	"github.com/zncdatadev/doris-operator/internal/controller/common"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/doris-operator/internal/controller/fe"
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
-	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -45,28 +43,10 @@ func NewClusterReconciler(
 	}
 }
 
-// GetImage returns the image configuration for Doris components
-func (r *Reconciler) GetImage(roleType constants.ComponentType) *util.Image {
-	image := &util.Image{
-		Custom:          common.GetComponentImage(r.Spec.Image, roleType),
-		Repo:            dorisv1alpha1.DefaultRepository,
-		ProductName:     dorisv1alpha1.DefaultProductName,
-		KubedoopVersion: dorisv1alpha1.DefaultKubedoopVersion,
-		ProductVersion:  dorisv1alpha1.DefaultProductVersion,
-		PullPolicy:      corev1.PullIfNotPresent,
-	}
-
-	if r.Spec.Image != nil {
-		image.Custom = r.Spec.Image.Custom
-		image.Repo = r.Spec.Image.Repo
-		image.KubedoopVersion = r.Spec.Image.KubedoopVersion
-		image.ProductVersion = r.Spec.Image.ProductVersion
-		if r.Spec.Image.PullPolicy != nil {
-			image.PullPolicy = *r.Spec.Image.PullPolicy
-		}
-		image.PullSecretName = r.Spec.Image.PullSecretName
-	}
-	return image
+// GetImage returns the image configuration for Doris components.
+// All components share a single unified image; roleType is accepted for interface compatibility.
+func (r *Reconciler) GetImage(_ constants.ComponentType) *util.Image {
+	return dorisv1alpha1.TransformImage(r.Spec.Image)
 }
 
 // RegisterResources registers all resources for the DorisCluster

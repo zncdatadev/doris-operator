@@ -232,10 +232,7 @@ func NewFeStatefulSetReconciler(
 	img := image
 
 	if img == nil {
-		// Get FE component image using common package function
-		feImage := common.GetComponentImage(dorisCluster.Spec.Image, constants.ComponentTypeFE)
-		pullPolicy := common.GetPullPolicy(dorisCluster.Spec.Image)
-		img = &opgoutil.Image{Custom: feImage, PullPolicy: pullPolicy}
+		img = common.GetImage(dorisCluster.Spec.Image, constants.ComponentTypeFE)
 	}
 
 	commonBuilder := common.NewStatefulSetBuilder(

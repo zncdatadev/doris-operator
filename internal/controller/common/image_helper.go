@@ -1,54 +1,17 @@
 package common
 
 import (
-	"fmt"
-
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
+	opgoutil "github.com/zncdatadev/operator-go/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 )
 
-// GetComponentImage returns the appropriate image for a specific component (BE or FE)
-func GetComponentImage(imageSpec *dorisv1alpha1.ImageSpec, componentType constants.ComponentType) string {
-	// Default component images
-	defaultImages := map[constants.ComponentType]string{
-		constants.ComponentTypeFE:     constants.DefaultFEImage,
-		constants.ComponentTypeBE:     constants.DefaultBEImage,
-		constants.ComponentTypeBroker: constants.DefaultBrokerImage,
-	}
-
-	// Return default image if imageSpec is nil
-	if imageSpec == nil {
-		return defaultImages[componentType]
-	}
-
-	// If custom image is specified, use it
-	if imageSpec.Custom != "" {
-		return imageSpec.Custom
-	}
-
-	// Otherwise construct component-specific image
-	repo := constants.DorisRepository
-	if imageSpec.Repo != "" {
-		repo = imageSpec.Repo
-	}
-
-	version := constants.DefaultDorisVersion
-	if imageSpec.ProductVersion != "" {
-		version = imageSpec.ProductVersion
-	}
-
-	// Format based on component type
-	switch componentType {
-	case constants.ComponentTypeFE:
-		return fmt.Sprintf(constants.FEImageFormat, repo, version)
-	case constants.ComponentTypeBE:
-		return fmt.Sprintf(constants.BEImageFormat, repo, version)
-	case constants.ComponentTypeBroker:
-		return fmt.Sprintf(constants.BrokerImageFormat, repo, version)
-	default:
-		return defaultImages[componentType]
-	}
+// GetImage builds the unified image for all Doris components.
+// All components (FE, BE, Broker) share a single image; the component type
+// is passed to satisfy caller conventions but does not affect the result.
+func GetImage(imageSpec *dorisv1alpha1.ImageSpec, _ constants.ComponentType) *opgoutil.Image {
+	return dorisv1alpha1.TransformImage(imageSpec)
 }
 
 // GetInitContainerImage returns the image to use for init containers

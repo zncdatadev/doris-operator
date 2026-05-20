@@ -151,9 +151,7 @@ func NewBrokerStatefulSetReconciler(
 	img := image
 
 	if img == nil {
-		brokerImage := common.GetComponentImage(dorisCluster.Spec.Image, constants.ComponentTypeBroker)
-		pullPolicy := common.GetPullPolicy(dorisCluster.Spec.Image)
-		img = &opgoutil.Image{Custom: brokerImage, PullPolicy: pullPolicy}
+		img = common.GetImage(dorisCluster.Spec.Image, constants.ComponentTypeBroker)
 	}
 
 	commonBuilder := common.NewStatefulSetBuilder(
