@@ -41,9 +41,9 @@ const (
 	// TODO: switch to quay.io/zncdatadev/doris unified image once the custom build is production-ready.
 	// Currently using the official apache/doris per-component images as the default.
 	OfficialImageRepository = "apache/doris"
-	InitImageRepository   = "selectdb/alpine"
-	DefaultInitImageTag   = "latest"
-	DefaultProductVersion = "2.1.8"
+	InitImageRepository     = "selectdb/alpine"
+	DefaultInitImageTag     = "latest"
+	DefaultProductVersion   = "2.1.8"
 
 	DefaultInitImage = InitImageRepository + ":" + DefaultInitImageTag
 )
