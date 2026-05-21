@@ -6,6 +6,7 @@ import (
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/be"
 	"github.com/zncdatadev/doris-operator/internal/controller/broker"
+	"github.com/zncdatadev/doris-operator/internal/controller/common"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	"github.com/zncdatadev/doris-operator/internal/controller/fe"
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
@@ -44,9 +45,8 @@ func NewClusterReconciler(
 }
 
 // GetImage returns the image configuration for Doris components.
-// All components share a single unified image; roleType is accepted for interface compatibility.
-func (r *Reconciler) GetImage(_ constants.ComponentType) *util.Image {
-	return dorisv1alpha1.TransformImage(r.Spec.Image)
+func (r *Reconciler) GetImage(roleType constants.ComponentType) *util.Image {
+	return common.GetImage(r.Spec.Image, roleType)
 }
 
 // RegisterResources registers all resources for the DorisCluster
