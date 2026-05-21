@@ -13,7 +13,6 @@ import (
 	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
-	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -45,28 +44,9 @@ func NewClusterReconciler(
 	}
 }
 
-// GetImage returns the image configuration for Doris components
+// GetImage returns the image configuration for Doris components.
 func (r *Reconciler) GetImage(roleType constants.ComponentType) *util.Image {
-	image := &util.Image{
-		Custom:          common.GetComponentImage(r.Spec.Image, roleType),
-		Repo:            dorisv1alpha1.DefaultRepository,
-		ProductName:     dorisv1alpha1.DefaultProductName,
-		KubedoopVersion: dorisv1alpha1.DefaultKubedoopVersion,
-		ProductVersion:  dorisv1alpha1.DefaultProductVersion,
-		PullPolicy:      corev1.PullIfNotPresent,
-	}
-
-	if r.Spec.Image != nil {
-		image.Custom = r.Spec.Image.Custom
-		image.Repo = r.Spec.Image.Repo
-		image.KubedoopVersion = r.Spec.Image.KubedoopVersion
-		image.ProductVersion = r.Spec.Image.ProductVersion
-		if r.Spec.Image.PullPolicy != nil {
-			image.PullPolicy = *r.Spec.Image.PullPolicy
-		}
-		image.PullSecretName = r.Spec.Image.PullSecretName
-	}
-	return image
+	return common.GetImage(r.Spec.Image, roleType)
 }
 
 // RegisterResources registers all resources for the DorisCluster

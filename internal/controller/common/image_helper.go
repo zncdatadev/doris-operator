@@ -5,50 +5,28 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
+	opgoutil "github.com/zncdatadev/operator-go/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 )
 
-// GetComponentImage returns the appropriate image for a specific component (BE or FE)
-func GetComponentImage(imageSpec *dorisv1alpha1.ImageSpec, componentType constants.ComponentType) string {
-	// Default component images
-	defaultImages := map[constants.ComponentType]string{
-		constants.ComponentTypeFE:     constants.DefaultFEImage,
-		constants.ComponentTypeBE:     constants.DefaultBEImage,
-		constants.ComponentTypeBroker: constants.DefaultBrokerImage,
-	}
-
-	// Return default image if imageSpec is nil
+// GetImage returns the image for the given component.
+//
+// When imageSpec is nil (no image configured in the CR), it falls back to the
+// official apache/doris per-component images (e.g. apache/doris:fe-2.1.8).
+//
+// When imageSpec is provided, it delegates to TransformImage which builds the
+// unified quay.io/zncdatadev/doris:<version>-kubedoop<kubedoop-version> image.
+//
+// TODO: Once the custom unified image is production-ready, remove the nil
+// fallback and always use TransformImage.
+func GetImage(imageSpec *dorisv1alpha1.ImageSpec, componentType constants.ComponentType) *opgoutil.Image {
 	if imageSpec == nil {
-		return defaultImages[componentType]
+		return &opgoutil.Image{
+			Custom:     fmt.Sprintf("%s:%s-%s", constants.OfficialImageRepository, componentType, constants.DefaultProductVersion),
+			PullPolicy: corev1.PullIfNotPresent,
+		}
 	}
-
-	// If custom image is specified, use it
-	if imageSpec.Custom != "" {
-		return imageSpec.Custom
-	}
-
-	// Otherwise construct component-specific image
-	repo := constants.DorisRepository
-	if imageSpec.Repo != "" {
-		repo = imageSpec.Repo
-	}
-
-	version := constants.DefaultDorisVersion
-	if imageSpec.ProductVersion != "" {
-		version = imageSpec.ProductVersion
-	}
-
-	// Format based on component type
-	switch componentType {
-	case constants.ComponentTypeFE:
-		return fmt.Sprintf(constants.FEImageFormat, repo, version)
-	case constants.ComponentTypeBE:
-		return fmt.Sprintf(constants.BEImageFormat, repo, version)
-	case constants.ComponentTypeBroker:
-		return fmt.Sprintf(constants.BrokerImageFormat, repo, version)
-	default:
-		return defaultImages[componentType]
-	}
+	return dorisv1alpha1.TransformImage(imageSpec)
 }
 
 // GetInitContainerImage returns the image to use for init containers

@@ -24,11 +24,9 @@ const FELogFileName = "fe.log4j2.xml"
 
 // General constants
 const (
-	// Common values
-	DefaultDorisVersion = "2.1.8"
-	PodinfoVolumeName   = "podinfo"
-	DefaultElectNumber  = "3"
-	HttpScheme          = "http"
+	PodinfoVolumeName  = "podinfo"
+	DefaultElectNumber = "3"
+	HttpScheme         = "http"
 )
 
 // Service related constants
@@ -40,21 +38,14 @@ const (
 
 // Image related constants
 const (
-	// Image repositories
-	DorisRepository     = "apache/doris"
-	InitImageRepository = "selectdb/alpine"
-	DefaultInitImageTag = "latest"
+	// TODO: switch to quay.io/zncdatadev/doris unified image once the custom build is production-ready.
+	// Currently using the official apache/doris per-component images as the default.
+	OfficialImageRepository = "apache/doris"
+	InitImageRepository     = "selectdb/alpine"
+	DefaultInitImageTag     = "latest"
+	DefaultProductVersion   = "2.1.8"
 
-	// Default image references
-	DefaultFEImage     = DorisRepository + ":" + string(ComponentTypeFE) + "-" + DefaultDorisVersion
-	DefaultBEImage     = DorisRepository + ":" + string(ComponentTypeBE) + "-" + DefaultDorisVersion
-	DefaultBrokerImage = DorisRepository + ":" + string(ComponentTypeBroker) + "-" + DefaultDorisVersion
-	DefaultInitImage   = InitImageRepository + ":" + DefaultInitImageTag
-
-	// Image format templates
-	FEImageFormat     = "%s:" + string(ComponentTypeFE) + "-%s"
-	BEImageFormat     = "%s:" + string(ComponentTypeBE) + "-%s"
-	BrokerImageFormat = "%s:" + string(ComponentTypeBroker) + "-%s"
+	DefaultInitImage = InitImageRepository + ":" + DefaultInitImageTag
 )
 
 // Container names
