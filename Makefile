@@ -1,7 +1,7 @@
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 VERSION ?= 0.0.0-dev
-ENVTEST_K8S_VERSION = 1.26.1
+ENVTEST_K8S_VERSION = 1.35.0
 
 REGISTRY ?= quay.io/zncdatadev
 PROJECT_NAME = doris-operator
@@ -321,7 +321,7 @@ chainsaw-setup: ## Run the chainsaw setup
 
 .PHONY: chainsaw-test
 chainsaw-test: chainsaw ## Run the chainsaw test
-	KUBECONFIG=$(KIND_KUBECONFIG) $(CHAINSAW) test --cluster cluster-1=$(KIND_KUBECONFIG) --test-dir ./test/e2e/
+	KUBECONFIG=$(KIND_KUBECONFIG) $(CHAINSAW) test --config ./.chainsaw.yaml --cluster cluster-1=$(KIND_KUBECONFIG) --test-dir ./test/e2e/
 
 .PHONY: chainsaw-cleanup
 chainsaw-cleanup: ## Run the chainsaw cleanup
