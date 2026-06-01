@@ -109,10 +109,13 @@ runs the following jobs:
 - **Markdown Lint** — Lints markdown files under `docs/` and `README.*.md`
 - **Golang Lint** — Runs golangci-lint
 - **Golang Test** — Runs unit tests
-- **Chainsaw Test** — Runs Chainsaw E2E tests across multiple Kubernetes and Doris versions
-- **Release Image** — Builds and pushes multi-arch Docker image using the root
-  Dockerfile to `quay.io/zncdatadev/doris-operator:<version>`, and signs the
-  image with Cosign
+- **Chainsaw Test** — Runs Chainsaw E2E tests across multiple Kubernetes versions (1.33.7, 1.34.3, 1.35.0) and Doris versions (2.1.8)
+- **CRD Sync Check** — Verifies CRDs are in sync with manifests
+- **Chart Linter (Artifact Hub)** — Validates Helm chart metadata
+- **Chart Lint Helm** — Validates the Helm chart with `ct lint` and installs it with `ct install`
+- **Chart E2E** — Runs Chainsaw E2E tests against a Helm-installed release
+- **Release Image** — Builds and pushes multi-arch Docker image (linux/amd64, linux/arm64) to `quay.io/zncdatadev/doris-operator:<version>`, and signs the image with Cosign
+- **Release Chart** — Publishes the Helm chart to `quay.io/kubedoopcharts/doris-operator:<version>` (OCI registry) and updates the [kubedoop-helm-charts](https://github.com/zncdatadev/kubedoop-helm-charts) index
 
 ## Versioning Convention
 
@@ -153,6 +156,16 @@ git push upstream 0.4.0
 ```
 
 ## Troubleshooting
+
+### Chart release failed
+
+If the `chart-lint-helm` or `release-chart` job fails, check the workflow logs
+for details. Common issues include:
+
+- **CRDs out of sync**: Run `make manifests` and `make helm-crd-sync` to
+  regenerate CRDs, then commit the changes.
+- **Previous tag not found**: For the first release on a new release branch, the
+  workflow automatically detects this and marks all charts as changed.
 
 ### Re-trigger a pre-release
 
