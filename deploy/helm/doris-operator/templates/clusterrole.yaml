@@ -171,4 +171,3 @@ rules:
   - get
   - list
   - watch
-{{- include "doris-operator.extraPermissions" . }}
