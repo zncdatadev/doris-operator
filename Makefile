@@ -181,7 +181,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM = $(LOCALBIN)/helm
-KIND = $(LOCALBIN)/kind
+KIND ?= kind
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -189,7 +189,6 @@ CONTROLLER_TOOLS_VERSION ?= v0.17.1
 ENVTEST_VERSION ?= release-0.20
 GOLANGCI_LINT_VERSION ?= v2.12.1
 HELM_VERSION ?= v3.17.0
-KIND_VERSION ?= v0.27.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -217,10 +216,6 @@ $(HELM): $(LOCALBIN)
 	$(call go-install-tool,$(HELM),helm.sh/helm/v3/cmd/helm,$(HELM_VERSION))
 
 .PHONY: kind
-kind: $(KIND) ## Download helm locally if necessary.
-$(KIND): $(LOCALBIN)
-	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
-
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
 # $2 - package url which can be installed
@@ -261,29 +256,94 @@ endif
 ##@ Chainsaw-E2E
 
 # Tool Versions
-# KIND_K8S_VERSION refers to the version of k8s to be used by kind.
-# The version only effects e2e tests.
-# When run `make kind-create`, the version of k8s will be used to create the kind cluster,
-# and the target kubeconfig file will be named as `./kind-kubeconfig-$(KIND_K8S_VERSION)`.
-# So if you want to use the target cluster, to run `export KUBECONFIG=./kind-kubeconfig-$(KIND_K8S_VERSION)`.
+# KIND_K8S_VERSION refers to the version of Kubernetes to be used by kind node image.
+# When run `kind create --image kindest/node:v${KIND_K8S_VERSION}`, the node image version of k8s will be used to create the kind cluster,
+# and the target kubeconfig file will be named as `$(CHAINSAW_KUBECONFIG)` (default: `.kubeconfig`).
+# So if you want to use the target cluster, run `export KUBECONFIG=$(CHAINSAW_KUBECONFIG)` (default: `.kubeconfig`).
 KIND_K8S_VERSION ?= 1.26.15
-CHAINSAW_VERSION ?= v0.2.13
-
+# The kind node image can found in https://github.com/kubernetes-sigs/kind/releases.
 KIND_IMAGE ?= kindest/node:v${KIND_K8S_VERSION}
-KIND_KUBECONFIG ?= ./kind-kubeconfig-$(KIND_K8S_VERSION)
-KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-$(KIND_K8S_VERSION)
-KIND_CONFIG ?= test/e2e/kind-config.yaml
-
+CHAINSAW_CLUSTER ?= chainsaw-${PROJECT_NAME}
+CHAINSAW_KUBECONFIG ?= .kubeconfig
+CHAINSAW_VERSION ?= v0.2.13
 CHAINSAW = $(LOCALBIN)/chainsaw
 
-# Create a kind cluster
+# Define operator dependencies to be installed before running chainsaw tests.
+OPERATOR_DEPENDS ?= commons-operator listener-operator secret-operator
+
+.PHONY: chainsaw
+chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
+$(CHAINSAW): $(LOCALBIN)
+	@{ \
+	set -xe ;\
+	if test -x $(LOCALBIN)/chainsaw && ! $(LOCALBIN)/chainsaw version | grep $(CHAINSAW_VERSION:v%=%) > /dev/null; then \
+		echo "$(LOCALBIN)/chainsaw version is not expected $(CHAINSAW_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/chainsaw; \
+	fi; \
+	if test ! -s $(LOCALBIN)/chainsaw; then \
+		mkdir -p $(dir $(CHAINSAW)) ;\
+		TMP=$(shell mktemp -d) ;\
+		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+		curl -sSL https://github.com/kyverno/chainsaw/releases/download/$(CHAINSAW_VERSION)/chainsaw_$${OS}_$${ARCH}.tar.gz | tar -xz -C $$TMP ;\
+		mv $$TMP/chainsaw $(CHAINSAW) ;\
+		rm -rf $$TMP ;\
+		chmod +x $(CHAINSAW) ;\
+		touch $(CHAINSAW) ;\
+	fi; \
+	}
+
+.PHONY: setup-chainsaw-cluster
+setup-chainsaw-cluster: ## Set up a Kind cluster for e2e tests if it does not exist
+	@command -v $(KIND) >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@case "$$($(KIND) get clusters)" in \
+		*"$(CHAINSAW_CLUSTER)"*) \
+			echo "Kind cluster '$(CHAINSAW_CLUSTER)' already exists. Skipping creation." ;; \
+		*) \
+			echo "Creating Kind cluster '$(CHAINSAW_CLUSTER)'..."; \
+			$(KIND) create cluster --name $(CHAINSAW_CLUSTER) --image $(KIND_IMAGE) --kubeconfig $(CHAINSAW_KUBECONFIG) ;; \
+	esac
+
+	@if [ -n "$(strip $(OPERATOR_DEPENDS))" ]; then \
+		echo "Installing operator dependencies..."; \
+		for dep in $(OPERATOR_DEPENDS); do \
+			"$(HELM)" upgrade --install --create-namespace --namespace kubedoop-operators --kubeconfig $(CHAINSAW_KUBECONFIG) --wait $$dep oci://quay.io/kubedoopcharts/$$dep --version $(VERSION); \
+		done; \
+	fi
+
+.PHONY: setup-chainsaw-e2e
+setup-chainsaw-e2e: chainsaw docker-build ## Run the chainsaw setup
+	"$(KIND)" --name $(CHAINSAW_CLUSTER) load docker-image "$(IMG)"
+	KUBECONFIG=$(CHAINSAW_KUBECONFIG) $(MAKE) deploy
+
+.PHONY: chainsaw-e2e
+chainsaw-e2e: ## Run the chainsaw e2e tests
+	KUBECONFIG=$(CHAINSAW_KUBECONFIG) $(CHAINSAW) test --config ./test/e2e/.chainsaw.yaml --test-dir ./test/e2e/
+
+.PHONY: cleanup-chainsaw-e2e
+cleanup-chainsaw-e2e: ## Run the chainsaw cleanup
+	KUBECONFIG=$(CHAINSAW_KUBECONFIG) $(MAKE) undeploy
+	@if [ -n "$(strip $(OPERATOR_DEPENDS))" ]; then \
+		for dep in $(OPERATOR_DEPENDS); do \
+			"$(HELM)" uninstall --namespace kubedoop-operators $$dep; \
+		done; \
+	fi
+
+.PHONY: cleanup-chainsaw-cluster
+cleanup-chainsaw-cluster: ## Tear down the Kind cluster used for chainsaw e2e tests
+	$(KIND) delete cluster --name $(CHAINSAW_CLUSTER)
+	rm -f $(CHAINSAW_KUBECONFIG)
+
+# chainsaw (legacy, kept for compatibility)
 .PHONY: kind-create
 kind-create: kind ## Create a kind cluster.
-	$(KIND) create cluster --config $(KIND_CONFIG) --image $(KIND_IMAGE) --name $(KIND_CLUSTER_NAME) --kubeconfig $(KIND_KUBECONFIG) --wait 120s
+	$(KIND) create cluster --image $(KIND_IMAGE) --name $(CHAINSAW_CLUSTER) --kubeconfig $(CHAINSAW_KUBECONFIG) --wait 120s
 
 .PHONY: kind-delete
 kind-delete: kind ## Delete a kind cluster.
-	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
+	$(KIND) delete cluster --name $(CHAINSAW_CLUSTER)
 
 # chainsaw
 
@@ -312,18 +372,4 @@ $(CHAINSAW): $(LOCALBIN)
 	fi; \
 	}
 
-.PHONY: chainsaw-setup
-chainsaw-setup: ## Run the chainsaw setup
-	make docker-build
-	$(KIND) --name $(KIND_CLUSTER_NAME) load docker-image $(IMG)
-	KUBECONFIG=$(KIND_KUBECONFIG) make helm-install-depends
-	KUBECONFIG=$(KIND_KUBECONFIG) make deploy
 
-.PHONY: chainsaw-test
-chainsaw-test: chainsaw ## Run the chainsaw test
-	KUBECONFIG=$(KIND_KUBECONFIG) $(CHAINSAW) test --config ./.chainsaw.yaml --cluster cluster-1=$(KIND_KUBECONFIG) --test-dir ./test/e2e/
-
-.PHONY: chainsaw-cleanup
-chainsaw-cleanup: ## Run the chainsaw cleanup
-	KUBECONFIG=$(KIND_KUBECONFIG) make helm-uninstall-depends
-	KUBECONFIG=$(KIND_KUBECONFIG) make undeploy
