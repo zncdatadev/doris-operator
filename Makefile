@@ -258,6 +258,24 @@ ifneq ($(strip $(HELM_DEPENDS)),)
 	done
 endif
 
+##@ Helm Chart
+
+OCI_REGISTRY ?= oci://quay.io/kubedoopcharts
+
+.PHONY: helm-crd-sync ## Sync CRDs to helm chart for the operator.
+helm-crd-sync: manifests ## Sync CRDs to helm chart for the operator
+	cp config/crd/bases/doris.kubedoop.dev_dorisclusters.yaml deploy/helm/$(PROJECT_NAME)/crds/crds.yaml
+
+.PHONY: helm-chart-package ## Package helm chart for the operator.
+helm-chart-package: ## Package helm chart for the operator.
+	mkdir -p target/charts
+	rm -rf target/charts/*.tgz
+	"$(HELM)" package deploy/helm/$(PROJECT_NAME) --version $(VERSION) --app-version $(VERSION) --destination target/charts
+
+.PHONY: helm-chart-publish ## Publish helm chart for the operator.
+helm-chart-publish: helm-chart-package ## Publish helm chart for the operator.
+	"$(HELM)" push target/charts/$(PROJECT_NAME)-$(VERSION).tgz $(OCI_REGISTRY)
+
 ##@ Chainsaw-E2E
 
 # Tool Versions
