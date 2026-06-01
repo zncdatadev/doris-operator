@@ -26,7 +26,7 @@ type ImageSpec struct {
 	KubedoopVersion string `json:"kubedoopVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default="3.7.1"
+	// +kubebuilder:default="2.1.8"
 	ProductVersion string `json:"productVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional
