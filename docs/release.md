@@ -115,7 +115,9 @@ runs the following jobs:
 - **Chart Lint Helm** — Validates the Helm chart with `ct lint` and installs it with `ct install`
 - **Chart E2E** — Runs Chainsaw E2E tests against a Helm-installed release
 - **Release Image** — Builds and pushes multi-arch Docker image (linux/amd64, linux/arm64) to `quay.io/zncdatadev/doris-operator:<version>`, and signs the image with Cosign
-- **Release Chart** — Publishes the Helm chart to `quay.io/kubedoopcharts/doris-operator:<version>` (OCI registry) and updates the [kubedoop-helm-charts](https://github.com/zncdatadev/kubedoop-helm-charts) index
+- **Release Chart** — Publishes the Helm chart to
+  `quay.io/kubedoopcharts/doris-operator:<version>` (OCI registry) and updates
+  the [kubedoop-helm-charts](https://github.com/zncdatadev/kubedoop-helm-charts) index
 
 ## Versioning Convention
 
