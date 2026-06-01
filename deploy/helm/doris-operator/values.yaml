@@ -1,0 +1,57 @@
+# Default values for doris-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: quay.io/zncdatadev/doris-operator
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Metrics service configuration
+metrics:
+  enabled: true
+  secure: false
+  service:
+    type: ClusterIP
+    annotations: {}
+
+# Health probe configuration
+healthProbe:
+  bindAddress: ":8081"
+
+# ServiceMonitor configuration for Prometheus Operator
+serviceMonitor:
+  enabled: false
+  additionalLabels: {}
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  tlsConfig:
+    insecureSkipVerify: false

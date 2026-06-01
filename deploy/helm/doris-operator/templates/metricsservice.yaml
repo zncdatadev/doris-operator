@@ -1,0 +1,24 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "doris-operator.fullname" . }}-metrics-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "doris-operator.labels" . | nindent 4 }}
+    control-plane: controller-manager
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+  - name: {{ if .Values.metrics.secure }}https{{ else }}http{{ end }}
+    port: {{ if .Values.metrics.secure }}8443{{ else }}{{ regexReplaceAll ":" .Values.healthProbe.bindAddress "" }}{{ end }}
+    protocol: TCP
+    targetPort: {{ if .Values.metrics.secure }}8443{{ else }}{{ regexReplaceAll ":" .Values.healthProbe.bindAddress "" }}{{ end }}
+  selector:
+    {{- include "doris-operator.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+{{- end }}

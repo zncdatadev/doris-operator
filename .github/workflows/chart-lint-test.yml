@@ -1,0 +1,147 @@
+## Reference: https://github.com/helm/chart-testing-action
+name: Chart Linting and Testing
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+
+
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
+
+
+jobs:
+  check-crds-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check CRDs sync
+        run: |
+          # Use `make manifests` to generate the CRDs
+          make manifests
+          # Check if the CRDs are in sync with the manifests
+          if ! git diff --exit-code; then
+            echo "CRDs are not in sync with the manifests."
+            echo "Please run 'make manifests' to update the CRDs."
+            exit 1
+          fi
+
+  linter-artifacthub:
+    runs-on: ubuntu-latest
+    needs:
+      - check-crds-sync
+    container:
+      image: public.ecr.aws/artifacthub/ah:v1.14.0
+      options: --user 1001
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run ah lint
+        working-directory: deploy/helm
+        run: ah lint
+
+  chart-lint-helm:
+    runs-on: ubuntu-latest
+    needs:
+      - check-crds-sync
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          check-latest: true
+
+      - name: Setup Chart Linting
+        id: lint
+        uses: helm/chart-testing-action@v2.8.0
+
+      - name: Run chart-testing (list-changed)
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --chart-dirs deploy/helm --target-branch ${{ github.event.repository.default_branch }})
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run chart-testing (lint)
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct lint --debug --config ./.github/configs/ct-lint.yaml
+
+      - name: Create kind cluster
+        if: steps.list-changed.outputs.changed == 'true'
+        uses: helm/kind-action@v1.14.0
+
+      - name: Setup Go
+        if: steps.list-changed.outputs.changed == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build image
+        if: steps.list-changed.outputs.changed == 'true'
+        run: make docker-build
+
+      - name: Load images to cluster
+        if: steps.list-changed.outputs.changed == 'true'
+        run: kind load docker-image --name chart-testing quay.io/zncdatadev/doris-operator:$VERSION
+
+      - name: Run chart-testing (install)
+        if: steps.list-changed.outputs.changed == 'true'
+        run: |
+          ct install --config ./.github/configs/ct-install.yaml
+
+  chart-e2e:
+    runs-on: ubuntu-latest
+    needs:
+      - check-crds-sync
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          check-latest: true
+
+      - name: Setup Chart Linting
+        id: lint
+        uses: helm/chart-testing-action@v2.8.0
+
+      - name: Run chart-testing (list-changed)
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --chart-dirs deploy/helm --target-branch ${{ github.event.repository.default_branch }})
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        if: steps.list-changed.outputs.changed == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run chart-e2e
+        if: steps.list-changed.outputs.changed == 'true'
+        run: make chart-e2e
