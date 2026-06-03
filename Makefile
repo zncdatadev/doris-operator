@@ -276,7 +276,6 @@ helm-chart-publish: helm-chart-package ## Publish helm chart for the operator.
 	"$(HELM)" push target/charts/$(PROJECT_NAME)-$(VERSION).tgz $(OCI_REGISTRY)
 
 
-
 ##@ Chainsaw E2E
 
 CHAINSAW ?= $(LOCALBIN)/chainsaw
