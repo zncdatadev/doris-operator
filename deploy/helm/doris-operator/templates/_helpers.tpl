@@ -42,6 +42,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Extract the health probe port from the bind address.
+Example: ":8081" => "8081"
+*/}}
+{{- define "operator.healthProbePort" -}}
+{{- $bindAddress := .Values.healthProbe.bindAddress | default ":8081" }}
+{{- regexFind "[0-9]+$" $bindAddress }}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "doris-operator.serviceAccountName" -}}

@@ -45,16 +45,24 @@ spec:
         securityContext:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+        ports:
+        - name: healthz
+          containerPort: {{ include "operator.healthProbePort" . }}
+          protocol: TCP
         livenessProbe:
           httpGet:
             path: /healthz
-            port: {{ .Values.healthProbe.bindAddress }}
+            port: healthz
+            scheme: HTTP
           initialDelaySeconds: 15
           periodSeconds: 20
         readinessProbe:
           httpGet:
             path: /readyz
-            port: {{ .Values.healthProbe.bindAddress }}
+            port: healthz
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
           initialDelaySeconds: 5
           periodSeconds: 10
         {{- with .Values.resources }}
