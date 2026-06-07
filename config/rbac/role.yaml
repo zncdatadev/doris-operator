@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - events
   - secrets
   - serviceaccounts
   - services
@@ -46,6 +47,18 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - doris.kubedoop.dev
@@ -114,6 +127,26 @@ rules:
   - secrets.kubedoop.dev
   resources:
   - secretclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
   verbs:
   - get
   - list
