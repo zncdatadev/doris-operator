@@ -172,12 +172,12 @@ jobs:
           # Exclude -dev pre-release tags only when looking for the previous tag,
           # not when matching the current tag itself
           CURRENT_TAG="${{ github.ref_name }}"
-          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -A1 "^${CURRENT_TAG}$" | tail -n1 | grep -v '\-dev$')
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -A1 "^${CURRENT_TAG}$" | tail -n1 | grep -v '\-dev$' || true)
 
           # If the -dev tag itself was the only match (no previous stable tag found),
           # try again excluding -dev to find the actual previous stable release
           if [[ -z "$PREVIOUS_TAG" ]]; then
-            PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -v '\-dev$' | grep -A1 "^${CURRENT_TAG}$" | tail -n1)
+            PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -v '\-dev$' | grep -A1 "^${CURRENT_TAG}$" | tail -n1 || true)
           fi
 
           # First release detection
@@ -223,6 +223,12 @@ jobs:
       - name: Check chart changes
         id: check-changes
         run: |
+          # If first release (no since_commit), inherit changed=true from commit-range
+          if [[ -z "${{ steps.commit-range.outputs.since_commit }}" ]]; then
+            echo "First release detected in previous step - skipping ct list-changed"
+            exit 0
+          fi
+
           # Check for changes in chart directory using both --since and --target-branch parameters
           if ! changed=$(ct list-changed \
             --chart-dirs deploy/helm \
