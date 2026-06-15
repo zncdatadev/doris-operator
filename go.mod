@@ -5,7 +5,7 @@ go 1.25.8
 require (
 	emperror.dev/errors v0.8.1
 	github.com/go-sql-driver/mysql v1.10.0
-	github.com/onsi/ginkgo/v2 v2.29.0
+	github.com/onsi/ginkgo/v2 v2.31.0
 	github.com/onsi/gomega v1.41.0
 	github.com/zncdatadev/operator-go v0.12.6
 	k8s.io/apimachinery v0.35.4
