@@ -4,6 +4,8 @@ metadata:
   name: ldap
 spec:
   bindings:
+  - name: doris_version
+    value: ($values.product_version)
   - name: LDAP_ADMIN_USERNAME
     value: admin
   - name: LDAP_ADMIN_PASSWORD

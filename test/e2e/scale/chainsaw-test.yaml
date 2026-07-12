@@ -3,6 +3,9 @@ kind: Test
 metadata:
   name: scale
 spec:
+  bindings:
+  - name: doris_version
+    value: ($values.product_version)
   steps:
   - name: install doris cluster with 1 BE replica
     try:

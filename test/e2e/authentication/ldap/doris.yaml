@@ -6,6 +6,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: doriscluster-sample
 spec:
+  image:
+    productVersion: ($values.product_version)
   clusterConfig:
     authentication:
       - authenticationClass: ldap

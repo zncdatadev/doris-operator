@@ -4,6 +4,8 @@ metadata:
   name: logging
 spec:
   bindings:
+  - name: doris_version
+    value: ($values.product_version)
   steps:
   - name: install doris cluster
     try:
