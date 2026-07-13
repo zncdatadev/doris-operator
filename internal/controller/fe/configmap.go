@@ -29,6 +29,11 @@ func NewFEConfigMapReconciler(
 	roleConfig *commonsv1alpha1.RoleGroupConfigSpec,
 	dorisCluster *dorisv1alpha1.DorisCluster,
 ) reconciler.ResourceReconciler[builder.ConfigBuilder] {
+	// spec.clusterConfig is optional in the CRD, so it may be nil
+	var authSpec []dorisv1alpha1.AuthenticationSpec
+	if dorisCluster.Spec.ClusterConfig != nil {
+		authSpec = dorisCluster.Spec.ClusterConfig.Authentication
+	}
 	feBuilder := &FEConfigMapBuilder{
 		ConfigMapBuilder: builder.NewConfigMapBuilder(
 			client,
@@ -39,7 +44,7 @@ func NewFEConfigMapReconciler(
 			}),
 		overrides:  overrides,
 		roleConfig: roleConfig,
-		authSpec:   dorisCluster.Spec.ClusterConfig.Authentication,
+		authSpec:   authSpec,
 	}
 	commonBuilder := common.NewConfigMapBuilder(
 		ctx,
