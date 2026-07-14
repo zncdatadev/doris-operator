@@ -35,6 +35,10 @@ type VectorConfigParams struct {
 }
 
 func generateVectorYAML(ctx context.Context, params VectorConfigParams) (string, error) {
+	// spec.clusterConfig is optional in the CRD, so it may be nil
+	if params.ClusterConfig == nil {
+		return "", errors.New("clusterConfig is not set")
+	}
 	aggregatorConfigMapName := params.ClusterConfig.VectorAggregatorConfigMapName
 	if aggregatorConfigMapName == nil {
 		return "", errors.New("vectorAggregatorConfigMapName is not set")
