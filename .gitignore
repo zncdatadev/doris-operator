@@ -46,6 +46,3 @@ cover.out
 
 docker-digests.json
 .worktree/
-
-# generated chainsaw values
-test/e2e/.values.yaml
