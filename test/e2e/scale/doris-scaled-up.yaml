@@ -5,6 +5,8 @@ metadata:
     app.kubernetes.io/name: doris-operator
   name: doriscluster-sample
 spec:
+  image:
+    productVersion: ($values.product_version)
   clusterConfig: {}
   frontend:
     roleGroups:

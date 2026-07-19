@@ -3,6 +3,9 @@ kind: Test
 metadata:
   name: auth-secret
 spec:
+  bindings:
+  - name: doris_version
+    value: ($values.product_version)
   steps:
   - name: create admin secret
     try:
