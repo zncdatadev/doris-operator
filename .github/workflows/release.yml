@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -112,7 +112,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -264,7 +264,7 @@ jobs:
 
       - name: Setup Go
         if: steps.check-changes.outputs.changed == 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -294,7 +294,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
