@@ -323,14 +323,21 @@ func (c *DorisClient) ShowBrokers(ctx context.Context) ([]BrokerInfo, error) {
 
 // DecommissionBackend safely decommissions a BE node
 func (c *DorisClient) DecommissionBackend(ctx context.Context, host string, port int) error {
-	query := fmt.Sprintf("ALTER SYSTEM DECOMMISSION BACKEND \"%s:%d\"", host, port)
-	return c.exec(ctx, query)
+	return c.exec(ctx, decommissionBackendStatement(host, port))
 }
 
 // DropBackend forcibly removes a BE node
 func (c *DorisClient) DropBackend(ctx context.Context, host string, port int) error {
-	query := fmt.Sprintf("ALTER SYSTEM DROP BACKEND \"%s:%d\"", host, port)
-	return c.exec(ctx, query)
+	return c.exec(ctx, dropBackendStatement(host, port))
+}
+
+func decommissionBackendStatement(host string, port int) string {
+	return fmt.Sprintf("ALTER SYSTEM DECOMMISSION BACKEND \"%s:%d\"", host, port)
+}
+
+func dropBackendStatement(host string, port int) string {
+	// Doris intentionally spells the destructive confirmation keyword DROPP.
+	return fmt.Sprintf("ALTER SYSTEM DROPP BACKEND \"%s:%d\"", host, port)
 }
 
 // DropObserver removes an FE observer node
@@ -410,28 +417,30 @@ func ResolvePodHost(podName, namespace, clusterDomain string) string {
 	return fmt.Sprintf("%s.%s.svc.%s", podName, namespace, clusterDomain)
 }
 
-// MatchPodToBackend matches a K8s pod name to a Doris BE node by hostname substring match.
-// Doris registers nodes using their pod hostname, so string matching is sufficient.
+// MatchPodToBackend matches a K8s pod name to a Doris BE node by hostname or DNS name.
 func MatchPodToBackend(podName string, backends []BackendInfo) *BackendInfo {
 	for i := range backends {
 		be := &backends[i]
-		if strings.Contains(be.Host, podName) || be.Host == podName {
+		if matchesPodHost(podName, be.Host) {
 			return be
 		}
 	}
 	return nil
 }
 
-// MatchPodToFrontend matches a K8s pod name to a Doris FE node by hostname substring match.
-// Doris registers nodes using their pod hostname, so string matching is sufficient.
+// MatchPodToFrontend matches a K8s pod name to a Doris FE node by hostname or DNS name.
 func MatchPodToFrontend(podName string, frontends []FrontendInfo) *FrontendInfo {
 	for i := range frontends {
 		fe := &frontends[i]
-		if strings.Contains(fe.Host, podName) || fe.Host == podName {
+		if matchesPodHost(podName, fe.Host) {
 			return fe
 		}
 	}
 	return nil
+}
+
+func matchesPodHost(podName, host string) bool {
+	return host == podName || strings.HasPrefix(host, podName+".")
 }
 
 // parseInt parses a string to int, returning 0 on failure.

@@ -6,11 +6,11 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: doriscluster-sample
 spec:
-  frontEnd:
+  frontend:
     roleGroups:
       default:
         replicas: 1
-  backEnd:
+  backend:
     roleGroups:
       default:
         replicas: 1

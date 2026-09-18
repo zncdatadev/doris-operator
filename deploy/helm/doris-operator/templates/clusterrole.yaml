@@ -51,6 +51,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
   - statefulsets
@@ -140,18 +149,6 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - persistentvolumeclaims
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - storage.k8s.io

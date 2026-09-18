@@ -2,8 +2,6 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
-
-	"github.com/zncdatadev/operator-go/pkg/util"
 )
 
 const (
@@ -42,24 +40,5 @@ func DefaultImageSpec() *ImageSpec {
 		Repo:            DefaultRepository,
 		ProductVersion:  DefaultProductVersion,
 		KubedoopVersion: DefaultKubedoopVersion,
-	}
-}
-
-func TransformImage(imageSpec *ImageSpec) *util.Image {
-	if imageSpec == nil {
-		return util.NewImage(DefaultProductName, DefaultKubedoopVersion, DefaultProductVersion)
-	}
-	pullPolicy := corev1.PullIfNotPresent
-	if imageSpec.PullPolicy != nil {
-		pullPolicy = *imageSpec.PullPolicy
-	}
-	return &util.Image{
-		Custom:          imageSpec.Custom,
-		Repo:            imageSpec.Repo,
-		KubedoopVersion: imageSpec.KubedoopVersion,
-		ProductVersion:  imageSpec.ProductVersion,
-		PullPolicy:      pullPolicy,
-		PullSecretName:  imageSpec.PullSecretName,
-		ProductName:     DefaultProductName,
 	}
 }

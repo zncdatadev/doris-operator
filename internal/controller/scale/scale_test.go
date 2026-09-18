@@ -20,281 +20,36 @@ import (
 	"testing"
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
-	"github.com/zncdatadev/doris-operator/internal/controller/constants"
+	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
 )
-
-func intPtr(v int32) *int32 { return &v }
 
 const (
-	testRoleGroupDefault = "default"
-	testFEPod0           = "fe-0"
-	testFEPod1           = "fe-1"
-	testFEPod2           = "fe-2"
-	testBEPod0           = "be-0"
-	testBEPod1           = "be-1"
-	testBEPod2           = "be-2"
-	testPod0             = "pod-0"
-	testPod1             = "pod-1"
-	testPod2             = "pod-2"
-	testPod3             = "pod-3"
-	testBrokerPod0       = "broker-0"
+	testFEPod0     = "fe-0"
+	testFEPod1     = "fe-1"
+	testBEPod0     = "be-0"
+	testBEPod1     = "be-1"
+	testPod0       = "pod-0"
+	testPod1       = "pod-1"
+	testPod2       = "pod-2"
+	testPod3       = "pod-3"
+	testBrokerPod0 = "broker-0"
+	testBrokerPod1 = "broker-1"
 )
 
-func TestGetEffectiveReplicas(t *testing.T) {
-	tests := []struct {
-		name     string
-		roleSpec *dorisv1alpha1.RoleSpec
-		want     int32
-	}{
-		{
-			name:     "nil role spec",
-			roleSpec: nil,
-			want:     0,
+func TestBuildBrokerNodeStatusesUsesExactPodHostBoundary(t *testing.T) {
+	statuses := buildBrokerNodeStatuses(
+		[]string{testBrokerPod0, testBrokerPod1},
+		[]doris_client.BrokerInfo{
+			{Host: "broker-10.example.svc", Alive: true},
+			{Host: "broker-1.example.svc", Alive: true},
 		},
-		{
-			name: "single role group with replicas",
-			roleSpec: &dorisv1alpha1.RoleSpec{
-				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					testRoleGroupDefault: {Replicas: intPtr(3)},
-				},
-			},
-			want: 3,
-		},
-		{
-			name: "multiple role groups",
-			roleSpec: &dorisv1alpha1.RoleSpec{
-				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					testRoleGroupDefault: {Replicas: intPtr(2)},
-					"extra":              {Replicas: intPtr(1)},
-				},
-			},
-			want: 3,
-		},
-		{
-			name: "nil replicas defaults to 0",
-			roleSpec: &dorisv1alpha1.RoleSpec{
-				RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-					testRoleGroupDefault: {},
-				},
-			},
-			want: 0,
-		},
-		{
-			name:     "empty role groups",
-			roleSpec: &dorisv1alpha1.RoleSpec{},
-			want:     0,
-		},
+	)
+
+	if statuses[0].Host != "" || statuses[0].Alive {
+		t.Errorf("broker-0 status = %#v, must not match broker-10", statuses[0])
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GetEffectiveReplicas(tt.roleSpec)
-			if got != tt.want {
-				t.Errorf("GetEffectiveReplicas() = %d, want %d", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestComputeScaleActions(t *testing.T) {
-	tests := []struct {
-		name          string
-		spec          *dorisv1alpha1.DorisClusterSpec
-		replicaStates map[constants.ComponentType]*ReplicaState
-		wantLen       int
-		wantUps       int
-		wantDowns     int
-	}{
-		{
-			name: "no scale needed - current equals desired",
-			spec: &dorisv1alpha1.DorisClusterSpec{
-				Frontend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(3)},
-					},
-				},
-				Backend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(3)},
-					},
-				},
-			},
-			replicaStates: map[constants.ComponentType]*ReplicaState{
-				constants.ComponentTypeFE: {
-					Component:       constants.ComponentTypeFE,
-					SpecReplicas:    3,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
-				},
-				constants.ComponentTypeBE: {
-					Component:       constants.ComponentTypeBE,
-					SpecReplicas:    3,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
-				},
-			},
-			wantLen:   2, // both components present => 2 actions (no-op but included)
-			wantUps:   0,
-			wantDowns: 0,
-		},
-		{
-			name: "scale up FE and BE",
-			spec: &dorisv1alpha1.DorisClusterSpec{
-				Frontend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(5)},
-					},
-				},
-				Backend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(4)},
-					},
-				},
-			},
-			replicaStates: map[constants.ComponentType]*ReplicaState{
-				constants.ComponentTypeFE: {
-					Component:       constants.ComponentTypeFE,
-					SpecReplicas:    5,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
-				},
-				constants.ComponentTypeBE: {
-					Component:       constants.ComponentTypeBE,
-					SpecReplicas:    4,
-					CurrentReplicas: 2,
-					ReadyReplicas:   2,
-					PodNames:        []string{testBEPod0, testBEPod1},
-				},
-			},
-			wantLen:   2,
-			wantUps:   2,
-			wantDowns: 0,
-		},
-		{
-			name: "scale down BE",
-			spec: &dorisv1alpha1.DorisClusterSpec{
-				Frontend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(3)},
-					},
-				},
-				Backend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(1)},
-					},
-				},
-			},
-			replicaStates: map[constants.ComponentType]*ReplicaState{
-				constants.ComponentTypeFE: {
-					Component:       constants.ComponentTypeFE,
-					SpecReplicas:    3,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testFEPod0, testFEPod1, testFEPod2},
-				},
-				constants.ComponentTypeBE: {
-					Component:       constants.ComponentTypeBE,
-					SpecReplicas:    1,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
-				},
-			},
-			wantLen:   2, // FE (no-op) + BE (scale-down)
-			wantUps:   0,
-			wantDowns: 1,
-		},
-		{
-			name: "scale down to zero replicas",
-			spec: &dorisv1alpha1.DorisClusterSpec{
-				Frontend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(0)},
-					},
-				},
-				Backend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(3)},
-					},
-				},
-			},
-			replicaStates: map[constants.ComponentType]*ReplicaState{
-				constants.ComponentTypeFE: {
-					Component:       constants.ComponentTypeFE,
-					SpecReplicas:    0,
-					CurrentReplicas: 1,
-					ReadyReplicas:   1,
-					PodNames:        []string{testFEPod0},
-				},
-				constants.ComponentTypeBE: {
-					Component:       constants.ComponentTypeBE,
-					SpecReplicas:    3,
-					CurrentReplicas: 3,
-					ReadyReplicas:   3,
-					PodNames:        []string{testBEPod0, testBEPod1, testBEPod2},
-				},
-			},
-			wantLen:   2, // FE (no-op) + BE (scale-down)
-			wantUps:   0,
-			wantDowns: 1,
-		},
-		{
-			name: "component not in replicaStates",
-			spec: &dorisv1alpha1.DorisClusterSpec{
-				Frontend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(1)},
-					},
-				},
-				Backend: &dorisv1alpha1.RoleSpec{
-					RoleGroups: map[string]dorisv1alpha1.RoleGroupSpec{
-						testRoleGroupDefault: {Replicas: intPtr(1)},
-					},
-				},
-			},
-			replicaStates: map[constants.ComponentType]*ReplicaState{
-				// Only FE, no BE
-				constants.ComponentTypeFE: {
-					Component:       constants.ComponentTypeFE,
-					SpecReplicas:    1,
-					CurrentReplicas: 1,
-					ReadyReplicas:   1,
-					PodNames:        []string{testFEPod0},
-				},
-			},
-			wantLen:   1, // FE present in states (no-op), BE skipped (not in states)
-			wantUps:   0,
-			wantDowns: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actions := ComputeScaleActions(tt.spec, tt.replicaStates)
-			if len(actions) != tt.wantLen {
-				t.Errorf("ComputeScaleActions() returned %d actions, want %d", len(actions), tt.wantLen)
-				return
-			}
-
-			ups, downs := 0, 0
-			for _, a := range actions {
-				if a.IsScaleUp() {
-					ups++
-				}
-				if a.IsScaleDown() {
-					downs++
-				}
-			}
-			if ups != tt.wantUps {
-				t.Errorf("ComputeScaleActions() scale-ups = %d, want %d", ups, tt.wantUps)
-			}
-			if downs != tt.wantDowns {
-				t.Errorf("ComputeScaleActions() scale-downs = %d, want %d", downs, tt.wantDowns)
-			}
-		})
+	if statuses[1].Host != "broker-1.example.svc" || !statuses[1].Alive {
+		t.Errorf("broker-1 status = %#v, want exact DNS-label match", statuses[1])
 	}
 }
 
@@ -497,7 +252,7 @@ func TestUpdateClusterStatus(t *testing.T) {
 			name:       "populates FE nodes",
 			beStatuses: nil,
 			feStatuses: []FENodeStatus{
-				{PodName: testFEPod0, Host: testFEPod0, Role: "FOLLOWER", Alive: true},
+				{PodName: testFEPod0, Host: testFEPod0, Role: frontendRoleFollower, Alive: true},
 			},
 			brokerStatuses:  nil,
 			wantBENodes:     0,

@@ -37,9 +37,12 @@ import (
 
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller"
+	"github.com/zncdatadev/doris-operator/internal/controller/scale"
 	"github.com/zncdatadev/doris-operator/internal/util/version"
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
+	opcommon "github.com/zncdatadev/operator-go/pkg/common"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -156,10 +159,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.DorisClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	dorisHandler := controller.NewDorisRoleGroupHandler(mgr.GetScheme())
+	extensionRegistry := opcommon.NewExtensionRegistry[*dorisv1alpha1.DorisCluster]()
+	// Preserve the legacy role-wide discovery Services before any scale-down gate
+	// can pause role-group reconciliation.
+	extensionRegistry.RegisterClusterExtension(
+		controller.NewLegacyRoleServiceExtension(mgr.GetScheme()),
+		opcommon.WithPriority(opcommon.PriorityHigh),
+	)
+	extensionRegistry.RegisterClusterExtension(scale.NewScaleExtension())
+
+	dorisReconciler, err := reconciler.NewGenericReconciler(
+		&reconciler.GenericReconcilerConfig[*dorisv1alpha1.DorisCluster]{
+			Client:           mgr.GetClient(),
+			APIReader:        mgr.GetAPIReader(),
+			Scheme:           mgr.GetScheme(),
+			Recorder:         mgr.GetEventRecorderFor("doris-cluster-controller"), //nolint:staticcheck
+			RoleGroupHandler: dorisHandler,
+			RoleProvider:     dorisHandler,
+			RoleGroupResolver: reconciler.RoleGroupResolverFunc[*dorisv1alpha1.DorisCluster](
+				controller.ResolveDorisRoleGroup,
+			),
+			// Doris currently publishes one official image per role rather than one
+			// Kubedoop image.  Declare those images on the roles and leave ProductName
+			// empty so the framework never assembles a conflicting unified reference.
+			ImageResolution: reconciler.ImageResolution{
+				Defaults: commonsv1alpha1.ImageSpec{PullPolicy: "IfNotPresent"},
+			},
+			ExtensionRegistry: extensionRegistry,
+			Prototype:         &dorisv1alpha1.DorisCluster{},
+		},
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create GenericReconciler", "controller", "DorisCluster")
+		os.Exit(1)
+	}
+	if err = dorisReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DorisCluster")
 		os.Exit(1)
 	}

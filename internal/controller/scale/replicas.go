@@ -7,7 +7,6 @@ import (
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
 	"github.com/zncdatadev/doris-operator/internal/controller/constants"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -21,16 +20,31 @@ const (
 	// StrategyDropObserver is the default FE scale-down strategy
 	StrategyDropObserver = "drop-observer"
 
-	// AnnotationDecommissionStart is the annotation key prefix on the DorisCluster CR
-	// used to track BE decommission start times. Each pod gets its own annotation:
-	//   doris.kubedoop.dev/decommission-start/<pod-name> = <RFC3339 timestamp>
+	// AnnotationDecommissionStart is the single DorisCluster annotation used to track
+	// BE decommission state. Its value is a JSON object mapping pod names to either
+	// the pre-mutation "pending" intent marker or an RFC3339 start timestamp.
+	// Keeping the pod name in the value makes the annotation key a valid qualified
+	// name with exactly one slash.
 	AnnotationDecommissionStart = "doris.kubedoop.dev/decommission-start"
+	// AnnotationFrontendDropIntent records FE observer pods whose DROP OBSERVER
+	// operation has been authorized by an optimistic-lock patch. Its JSON object
+	// maps pod names to an explicit lifecycle phase. The durable safety latch stays
+	// in place after Doris removes the node and is cleared only after the live
+	// StatefulSet replica target no longer retains that pod ordinal.
+	AnnotationFrontendDropIntent = "doris.kubedoop.dev/frontend-drop-intent"
+	// AnnotationSafelyScaledToZero records FE/BE role groups whose Doris topology
+	// entries were removed before their StatefulSet reached zero replicas. This
+	// distinguishes a safe scale-down from the identical StatefulSet state caused
+	// by spec.clusterOperation.stopped.
+	AnnotationSafelyScaledToZero = "doris.kubedoop.dev/safely-scaled-to-zero"
 )
 
 // ScaleAction represents a scale operation to perform
 type ScaleAction struct {
 	// Component is the component type (fe, be, broker)
 	Component constants.ComponentType
+	// RoleGroup is the specific role group represented by StatefulSetNames.
+	RoleGroup string
 	// CurrentReplicas is the current number of replicas (from StatefulSet)
 	CurrentReplicas int32
 	// DesiredReplicas is the target number of replicas (from CR spec)
@@ -47,96 +61,6 @@ type ScaleAction struct {
 // IsScaleDown returns true if this is a scale-down action
 func (a *ScaleAction) IsScaleDown() bool {
 	return a.DesiredReplicas < a.CurrentReplicas
-}
-
-// IsScaleUp returns true if this is a scale-up action
-func (a *ScaleAction) IsScaleUp() bool {
-	return a.DesiredReplicas > a.CurrentReplicas
-}
-
-// ReplicaState holds the current replica information for a component
-type ReplicaState struct {
-	// Component type
-	Component constants.ComponentType
-	// SpecReplicas from StatefulSet spec (what the STS is targeting)
-	SpecReplicas int32
-	// CurrentReplicas from StatefulSet status (actual number of pods currently running)
-	CurrentReplicas int32
-	// Ready replicas from StatefulSet status
-	ReadyReplicas int32
-	// Pod names currently running (sorted by ordinal)
-	PodNames []string
-	// StatefulSetNames lists the StatefulSet names for this component.
-	StatefulSetNames []string
-}
-
-// GetEffectiveReplicas resolves the effective replica count for a component.
-// It sums replicas across all role groups.
-func GetEffectiveReplicas(roleSpec *dorisv1alpha1.RoleSpec) int32 {
-	if roleSpec == nil {
-		return 0
-	}
-
-	var total int32
-	for _, rg := range roleSpec.RoleGroups {
-		if rg.Replicas != nil {
-			total += *rg.Replicas
-		}
-	}
-
-	return total
-}
-
-// ComputeScaleActions compares desired replicas against current StatefulSet state
-// and returns scale actions for each component.
-//
-// Limitation: When multiple roleGroups exist for a component, scale-down pod selection
-// may not correctly target the roleGroup being scaled. Scale-down is only safely supported
-// for single-roleGroup deployments. Multi-roleGroup scale support requires per-StatefulSet
-// action computation which is not yet implemented.
-func ComputeScaleActions(
-	spec *dorisv1alpha1.DorisClusterSpec,
-	replicaStates map[constants.ComponentType]*ReplicaState,
-) []ScaleAction {
-	var actions []ScaleAction
-
-	components := []struct {
-		ct       constants.ComponentType
-		roleSpec *dorisv1alpha1.RoleSpec
-		strategy string
-	}{
-		{constants.ComponentTypeFE, spec.Frontend, getFEStrategy(spec)},
-		{constants.ComponentTypeBE, spec.Backend, getBEStrategy(spec)},
-		// Note: Broker is intentionally excluded from scale actions.
-		// Broker nodes do not hold persistent data and can be safely scaled by the operator-go
-		// StatefulSet reconciler without requiring Doris-level decommission/drop.
-	}
-
-	for _, comp := range components {
-		state, ok := replicaStates[comp.ct]
-		if !ok || state == nil {
-			continue
-		}
-
-		desired := GetEffectiveReplicas(comp.roleSpec)
-
-		action := ScaleAction{
-			Component:        comp.ct,
-			CurrentReplicas:  state.CurrentReplicas,
-			DesiredReplicas:  desired,
-			Strategy:         comp.strategy,
-			StatefulSetNames: state.StatefulSetNames,
-		}
-
-		if action.IsScaleDown() {
-			// Determine which pods to remove (highest ordinals first)
-			action.PodsToRemove = getPodsToRemove(state.PodNames, state.CurrentReplicas, desired)
-		}
-
-		actions = append(actions, action)
-	}
-
-	return actions
 }
 
 // getPodsToRemove returns pod names for the pods that should be removed during scale-down.
@@ -203,28 +127,4 @@ func GetStatefulSetPodNames(sts *appsv1.StatefulSet) []string {
 		names = append(names, fmt.Sprintf("%s-%d", sts.Name, i))
 	}
 	return names
-}
-
-// ComponentRole returns the Doris role name for a component
-func ComponentRole(ct constants.ComponentType) string {
-	switch ct {
-	case constants.ComponentTypeFE:
-		return "fe"
-	case constants.ComponentTypeBE:
-		return "be"
-	case constants.ComponentTypeBroker:
-		return "broker"
-	default:
-		return string(ct)
-	}
-}
-
-// IsPodOwnerRef checks if a pod belongs to a given StatefulSet
-func IsPodOwnerRef(pod corev1.Pod, stsName string) bool {
-	for _, ref := range pod.OwnerReferences {
-		if ref.Kind == "StatefulSet" && ref.Name == stsName {
-			return true
-		}
-	}
-	return false
 }

@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-19 | Updated: 2026-05-19 -->
+<!-- Generated: 2026-05-19 | Updated: 2026-09-15 -->
 
 # doris-operator
 
@@ -21,12 +21,10 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 | `config/` | Kubernetes manifests and kustomize configs |
 | `config/samples/` | Example CR manifests |
 | `internal/controller/` | Reconciliation controllers |
-| `internal/controller/fe/` | FE role reconciler (StatefulSet, ConfigMap, Service, LDAP) |
-| `internal/controller/be/` | BE role reconciler (StatefulSet, ConfigMap, Service) |
-| `internal/controller/broker/` | Broker role reconciler (StatefulSet, ConfigMap, Service) |
-| `internal/controller/common/` | Shared resources (configmap, statefulset, service, image helper) |
+| `internal/controller/doris_handler.go` | Gen 3 role declarations, config resolution, and resource shaping for FE/BE/Broker |
+| `internal/controller/service_extension.go` | Cluster-level reconciliation of legacy role-wide Services |
 | `internal/controller/constants/` | Component constants (ports, images, paths, labels) |
-| `internal/controller/scale/` | Scale management (BE decommission/force-drop, FE drop-observer, STS gate, timeout) |
+| `internal/controller/scale/` | Gen 3 scale/status extension (BE decommission/force-drop, FE drop-observer, timeout) |
 | `internal/controller/doris_client/` | Doris MySQL protocol client for cluster management SQL operations |
 | `test/e2e/` | End-to-end test suites (chainsaw) |
 
@@ -34,11 +32,11 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 
 ### Working In This Directory
 - Standard Kubebuilder operator structure
-- Uses `github.com/zncdatadev/operator-go` framework for reconciliation
+- Uses the operator-go Gen 3 `GenericReconciler` and `RoleGroupHandler` framework
 - Run `make test` for unit tests
 - Run `make deploy IMG=<image>` to deploy to cluster (do not commit kustomization.yaml changes)
 - CRD group: `doris.kubedoop.dev`
-- Three components: FE, BE, Broker — all use `BaseDorisRoleReconciler` pattern
+- Three roles: FE, BE, Broker — all are declared by `DorisRoleGroupHandler`
 
 ### Development Workflow
 - Fork-based workflow: fork → branch → worktree → PR to upstream `zncdatadev/doris-operator`
@@ -50,15 +48,14 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 - E2E tests in `test/e2e/` using chainsaw framework
 - Requires a Kind cluster: `kind create cluster --config test/e2e/kind-config.yaml`
 - Test images use Apache official Doris images from Docker Hub
-- Two test matrix: Kubernetes 1.26.x and 1.32.x
+- Pull requests run Chainsaw on Kubernetes 1.35; release verification covers 1.33, 1.34, and 1.35
 - Broker depends on FE being ready (entrypoint waits for FE Master election with 60s timeout)
 
 ### Common Patterns
-- Main controller: `internal/controller/doriscluster_controller.go`
-- Cluster reconciler: `internal/controller/cluster.go` — registers FE/BE/Broker role reconcilers
-- Role reconcilers: `fe/role.go`, `be/role.go`, `broker/role.go`
-- Each role creates: ConfigMap (component config) + Internal Service (headless) + Access Service + StatefulSet + Metrics Service
-- Shared logic in `common/`: `BaseDorisRoleReconciler`, `RegisterStandardResources`, `StatefulSetBuilder`
+- Main wiring: `cmd/main.go` creates the operator-go `GenericReconciler`
+- Product seam: `internal/controller/doris_handler.go` declares FE/BE/Broker and shapes each role group's resources
+- Each role creates: ConfigMap + governing headless Service + compatibility Internal/Access Services + StatefulSet + Metrics Service
+- Product-specific scale and node status handling is registered as a cluster extension from `internal/controller/scale/`
 - Broker is stateless (no PVC, no init container), FE has PVC for metadata, BE has PVC for storage + init container for sysctl
 - CRD spec uses independent fields: `spec.frontend`, `spec.backend`, `spec.broker` (type-safe, backward compatible)
 - Scale management: `internal/controller/scale/` handles safe scale-down via Doris MySQL protocol
@@ -70,7 +67,7 @@ Manages Apache Doris deployments on Kubernetes. Handles creation, configuration,
 ## Dependencies
 
 ### Internal
-- `../operator-go` — Shared operator framework (`github.com/zncdatadev/operator-go v0.12.6`)
+- `../operator-go` — Shared operator framework (`github.com/zncdatadev/operator-go v0.13.0`)
 
 ### External
 - `sigs.k8s.io/controller-runtime` v0.23+

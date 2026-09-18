@@ -10,6 +10,8 @@ spec:
   - name: install doris cluster
     try:
     - apply:
+        file: vector-aggregator.yaml
+    - apply:
         file: doris.yaml
     - assert:
         file: doris-assert.yaml

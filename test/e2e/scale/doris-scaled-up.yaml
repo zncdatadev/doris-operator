@@ -7,7 +7,9 @@ metadata:
 spec:
   image:
     productVersion: ($values.product_version)
-  clusterConfig: {}
+  clusterConfig:
+    scaleDownPolicy:
+      backendStrategy: force-drop
   frontend:
     roleGroups:
       default:

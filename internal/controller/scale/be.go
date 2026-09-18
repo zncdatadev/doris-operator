@@ -68,36 +68,43 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, poli
 						tracker.ClearStart(podName)
 					}
 				} else {
-					// Check decommission timeout for fallback to force-drop
-					if decommissionTimeout > 0 && tracker != nil {
+					// Tracking is also the safety latch which rejects raising the
+					// desired replica count while Doris is still decommissioning a
+					// node. Record it even when timeout-based force-drop is disabled.
+					var startedAt time.Time
+					if tracker != nil {
 						if startAnno, ok := tracker.GetStart(podName); ok {
-							if startedAt, err := time.Parse(time.RFC3339, startAnno); err == nil {
-								elapsed := time.Since(startedAt)
-								if elapsed > decommissionTimeout {
-									beScaleLogger.Info("BE decommission timed out, force-dropping",
-										"pod", podName, "host", be.Host,
-										"elapsed", elapsed.Round(time.Second),
-										"timeout", decommissionTimeout)
-									if dropErr := m.client.DropBackend(ctx, be.Host, be.Port); dropErr != nil {
-										return nil, fmt.Errorf("failed to force-drop timed-out BE %s: %w", podName, dropErr)
-									}
-									readyForRemoval = append(readyForRemoval, podName)
-									tracker.ClearStart(podName)
-									continue
-								}
+							if startAnno == decommissionIntentPending {
+								beScaleLogger.Info("Confirming persisted BE decommission intent", "pod", podName)
+							} else if parsed, parseErr := time.Parse(time.RFC3339, startAnno); parseErr == nil {
+								startedAt = parsed
 							} else {
-								// Invalid timestamp — clear and backfill
 								beScaleLogger.Info("Invalid decommission start timestamp, backfilling",
 									"pod", podName, "value", startAnno)
 								tracker.ClearStart(podName)
-								tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
 							}
-						} else {
-							// Backfill: decommission in progress but start time missing
-							// (controller restart, upgrade with existing decommissions).
-							beScaleLogger.Info("Backfilling missing decommission start time",
-								"pod", podName)
-							tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
+						}
+						if startedAt.IsZero() {
+							startedAt = time.Now().UTC()
+							beScaleLogger.Info("Backfilling missing decommission start time", "pod", podName)
+							tracker.RecordStart(podName, startedAt.Format(time.RFC3339))
+						}
+					}
+
+					// Check decommission timeout for fallback to force-drop.
+					if decommissionTimeout > 0 && !startedAt.IsZero() {
+						elapsed := time.Since(startedAt)
+						if elapsed > decommissionTimeout {
+							beScaleLogger.Info("BE decommission timed out, force-dropping",
+								"pod", podName, "host", be.Host,
+								"elapsed", elapsed.Round(time.Second),
+								"timeout", decommissionTimeout)
+							if dropErr := m.client.DropBackend(ctx, be.Host, be.Port); dropErr != nil {
+								return nil, fmt.Errorf("failed to force-drop timed-out BE %s: %w", podName, dropErr)
+							}
+							readyForRemoval = append(readyForRemoval, podName)
+							tracker.ClearStart(podName)
+							continue
 						}
 					}
 					beScaleLogger.Info("BE decommission in progress, waiting",
@@ -110,8 +117,9 @@ func (m *BEScaleManager) ScaleDown(ctx context.Context, action ScaleAction, poli
 				if err := m.client.DecommissionBackend(ctx, be.Host, be.Port); err != nil {
 					return nil, fmt.Errorf("failed to decommission BE %s: %w", podName, err)
 				}
-				// Record decommission start time for timeout tracking
-				if tracker != nil && decommissionTimeout > 0 {
+				// The timestamp is both timeout state and the persistent latch that
+				// prevents a target rollback from retaining this node mid-removal.
+				if tracker != nil {
 					tracker.RecordStart(podName, time.Now().UTC().Format(time.RFC3339))
 				}
 			}

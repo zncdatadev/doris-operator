@@ -13,10 +13,12 @@ type ScaleDownPolicy interface {
 }
 
 // DecommissionTracker manages BE decommission lifecycle state.
-// It tracks start times and handles persistence of annotation updates.
+// It tracks pre-mutation intent or start times and handles persistence of
+// annotation updates.
 type DecommissionTracker interface {
-	// GetStart returns the decommission start time for a pod (RFC3339).
-	// Returns the timestamp and true if set, empty string and false otherwise.
+	// GetStart returns the tracked state for a pod: normally an RFC3339 start
+	// timestamp, or an internal pre-mutation intent marker before Doris has
+	// confirmed decommissioning. It returns empty string and false when unset.
 	GetStart(podName string) (string, bool)
 	// RecordStart records the decommission start time for a pod.
 	RecordStart(podName string, timestamp string)
@@ -28,4 +30,14 @@ type DecommissionTracker interface {
 	// PendingPods returns pod names that have active (non-cleared) decommission tracking.
 	// Used to determine if any STS replicas need to be gated.
 	PendingPods() []string
+}
+
+// FrontendDropTracker manages durable intent for destructive FE observer
+// removals. The intent is persisted before DROP OBSERVER, transitions to a
+// removed phase after Doris no longer contains the node, and is cleared only
+// after the StatefulSet no longer retains the corresponding pod ordinal.
+type FrontendDropTracker interface {
+	RecordFrontendDropIntent(podName string)
+	MarkFrontendRemoved(podName string)
+	Persist(ctx context.Context) error
 }

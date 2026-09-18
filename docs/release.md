@@ -34,6 +34,12 @@ updated for a release.
 
 ## Release Process
 
+When upgrading an existing installation to the operator-go v0.13-based
+controller, follow the CRD-first procedure in the
+[operator-go v0.13 migration guide](operator-go-v0.13-migration.md). Helm does
+not update objects from a chart's `crds/` directory during `helm upgrade`, and
+the new controller requires its status schema before it starts.
+
 ### 1. Prepare Content
 
 Prepare the code to be released before creating the release branch. This

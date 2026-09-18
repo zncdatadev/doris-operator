@@ -7,7 +7,12 @@ metadata:
 spec:
   image:
     productVersion: ($values.product_version)
-  clusterConfig: {}
+  clusterConfig:
+    # This fixture intentionally reduces a 3-BE / replication-3 ephemeral
+    # cluster to one BE. Doris correctly rejects safe decommission for that
+    # topology, so exercise the explicit destructive strategy instead.
+    scaleDownPolicy:
+      backendStrategy: force-drop
   frontend:
     roleGroups:
       default:

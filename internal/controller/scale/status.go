@@ -1,8 +1,34 @@
 package scale
 
 import (
+	"strings"
+
 	dorisv1alpha1 "github.com/zncdatadev/doris-operator/api/v1alpha1"
+	"github.com/zncdatadev/doris-operator/internal/controller/doris_client"
 )
+
+// BrokerNodeStatus represents the scale-relevant status of a Broker pod.
+type BrokerNodeStatus struct {
+	PodName string
+	Host    string
+	Alive   bool
+}
+
+func buildBrokerNodeStatuses(podNames []string, brokers []doris_client.BrokerInfo) []BrokerNodeStatus {
+	statuses := make([]BrokerNodeStatus, 0, len(podNames))
+	for _, podName := range podNames {
+		status := BrokerNodeStatus{PodName: podName}
+		for _, broker := range brokers {
+			if broker.Host == podName || strings.HasPrefix(broker.Host, podName+".") {
+				status.Host = broker.Host
+				status.Alive = broker.Alive
+				break
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses
+}
 
 // UpdateClusterStatus updates the DorisCluster CR status with node information
 // from the scale reconciliation result.
